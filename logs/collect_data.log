@@ -1,0 +1,42 @@
+2026-01-18 12:45:47,829 - INFO - ============================================================
+2026-01-18 12:45:47,829 - INFO - Simple Calibration Data Collection
+2026-01-18 12:45:47,829 - INFO - ============================================================
+2026-01-18 12:45:47,829 - INFO - 
+2026-01-18 12:45:47,829 - INFO - Instructions:
+2026-01-18 12:45:47,829 - INFO -   1. Move robot by hand to see chessboard
+2026-01-18 12:45:47,830 - INFO -   2. Press 's' to save and quit
+2026-01-18 12:45:47,830 - INFO - 
+2026-01-18 12:45:47,830 - INFO - Chessboard: 7x3 internal corners, 25.0mm squares
+2026-01-18 12:45:47,830 - INFO - ============================================================
+2026-01-18 12:45:47,830 - INFO - 
+2026-01-18 12:45:47,831 - INFO - Camera intrinsics loaded from /home/skhan61/Desktop/trossen-arm-data-collection/data/camera_calibration_data/camera_intrinsics.json
+2026-01-18 12:45:47,831 - INFO - Connecting to robot at 192.168.1.99...
+2026-01-18 12:45:47,831 - INFO - Connecting to the arm controller's TCP server at 192.168.1.99:50001
+2026-01-18 12:45:47,834 - INFO - Connecting to the arm controller's UDP server at 192.168.1.99:50000
+2026-01-18 12:45:47,835 - INFO - Driver version: 'v1.9.0'
+2026-01-18 12:45:47,835 - INFO - Controller firmware version: 'v1.9.1'
+2026-01-18 12:45:47,842 - INFO - Robot connected
+2026-01-18 12:45:47,843 - INFO - Initial robot state recorded
+2026-01-18 12:45:47,845 - INFO -   Joint positions: ['-0.01°', '-0.21°', '-0.47°', '-0.54°', '-0.01°', '-0.01°', '-0.00°']
+2026-01-18 12:45:47,845 - INFO -   Cartesian: x=0.254, y=-0.000, z=0.158
+2026-01-18 12:45:47,845 - INFO - 
+2026-01-18 12:45:47,845 - INFO - Moving to home position...
+2026-01-18 12:45:54,348 - INFO - At home position
+2026-01-18 12:45:54,349 - INFO - 
+2026-01-18 12:45:54,349 - INFO - Enabling gravity compensation...
+2026-01-18 12:45:56,851 - INFO - Robot ready - move it BY HAND to see the chessboard
+2026-01-18 12:45:56,851 - INFO - Press 's' when board is detected to save and quit
+2026-01-18 12:45:56,851 - INFO - 
+2026-01-18 12:46:00,443 - INFO - Robot locked - board detected
+2026-01-18 12:46:02,265 - INFO - Saving pose 1...
+2026-01-18 12:46:02,280 - INFO -   Image saved: /home/skhan61/Desktop/trossen-arm-data-collection/data/collected_calibration_data/pose_001.png
+2026-01-18 12:46:02,281 - INFO - Data saved to /home/skhan61/Desktop/trossen-arm-data-collection/data/collected_calibration_data/calibration_data.json
+2026-01-18 12:46:02,281 - INFO - ✓ Pose 1 saved successfully
+2026-01-18 12:46:02,281 - INFO - 
+2026-01-18 12:46:02,281 - INFO - Data saved - quitting...
+2026-01-18 12:46:02,397 - INFO - 
+2026-01-18 12:46:02,397 - INFO - Returning to home position...
+2026-01-18 12:46:08,901 - INFO - Done
+2026-01-18 12:46:08,901 - INFO - 
+2026-01-18 12:46:08,901 - INFO - Total poses collected: 1
+2026-01-18 12:46:08,901 - INFO - Data saved to: /home/skhan61/Desktop/trossen-arm-data-collection/data/collected_calibration_data/calibration_data.json

@@ -1,0 +1,7 @@
+2026-01-18 11:05:44,823 - INFO - Logging to /home/skhan61/Desktop/trossen-arm-data-collection/logs/compute_hand_eye.log
+2026-01-18 11:05:44,823 - INFO - ============================================================
+2026-01-18 11:05:44,823 - INFO - Computing Hand-Eye Calibration from Existing Data
+2026-01-18 11:05:44,823 - INFO - ============================================================
+2026-01-18 11:05:44,824 - INFO - Loading data from /home/skhan61/Desktop/trossen-arm-data-collection/data/hand_eye_calibration_data/hand_eye_data.json
+2026-01-18 11:05:44,824 - INFO - Loaded 5 poses
+2026-01-18 11:05:44,824 - ERROR - Not enough poses: 5 (need at least 15)

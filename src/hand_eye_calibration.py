@@ -39,8 +39,12 @@ logger.info(f"Logging to {LOG_FILE}")
 ARM_IP = "192.168.1.99"
 
 # Chessboard parameters for hand-eye calibration
-BOARD_SIZE = (6, 8)
-SQUARE_SIZE = 0.025
+BOARD_SIZE = (7, 3)  # (columns, rows) of inner corners - 7x3 board
+SQUARE_SIZE = 0.025  # 25mm squares
+
+# Old ArUco marker parameters (not used anymore)
+# ARUCO_DICT = cv2.aruco.DICT_ARUCO_ORIGINAL
+# MARKER_SIZE = 0.150
 
 # WidowX AI Cartesian limits (from specifications)
 CARTESIAN_LIMITS = {
@@ -233,6 +237,8 @@ def main():
     logger.info("3. Collect 15+ diverse poses (different positions and angles)")
     logger.info("4. Press 'q' when done to compute calibration")
     logger.info("")
+    logger.info("Chessboard: 7x3 internal corners, 25mm squares")
+    logger.info("")
     logger.info("Tips:")
     logger.info("- Move board to different distances from camera")
     logger.info("- Tilt board at different angles")
@@ -343,7 +349,9 @@ def main():
                 detected, corners, rvec, tvec = detect_chessboard(image)
 
                 if detected:
+                    # Draw chessboard corners
                     cv2.drawChessboardCorners(display, BOARD_SIZE, corners, True)
+                    # Draw coordinate axes on board
                     cv2.drawFrameAxes(display, CAMERA_MATRIX, DIST_COEFFS, rvec, tvec, 0.05)
 
                     # LOCK robot when board detected
