@@ -100,6 +100,290 @@ T₁ · T₂ = [R₁·R₂  |  R₁·t₂ + t₁]
 
 ---
 
+## Mathematical Proof of Transformation Chain
+
+### Theorem: Composition of Transformations
+
+**Given:**
+- Point **p** in GelSight frame
+- Want to express **p** in robot base frame
+
+**Prove:**
+```
+p_base = T_{base→ee} · T_{ee→cam} · T_{cam→gel} · p_gel
+```
+
+### Proof by Construction
+
+#### Step 1: Point in GelSight Frame to Camera Frame
+
+A point **p_gel** in GelSight coordinates can be expressed in camera coordinates:
+
+```
+p_cam = T_{cam→gel} · p_gel
+```
+
+Expanded:
+```
+[x_cam]   [R_{cam→gel}  |  t_{cam→gel}]   [x_gel]
+[y_cam] = [             |              ] · [y_gel]
+[z_cam]   [    0ᵀ       |      1       ]   [z_gel]
+[ 1   ]                                     [ 1   ]
+```
+
+**What this means physically:**
+- R_{cam→gel} rotates the point from GelSight orientation to camera orientation
+- t_{cam→gel} translates the point from GelSight origin to camera origin
+- Result: Point coordinates in camera frame
+
+**Derivation:**
+```
+[x_cam]   [R_{cam→gel}] [x_gel]   [t_{cam→gel}]
+[y_cam] = [           ] [y_gel] + [           ]
+[z_cam]   [           ] [z_gel]   [           ]
+
+Position in camera = (Rotation applied to gel position) + (translation from gel to cam)
+```
+
+---
+
+#### Step 2: Point in Camera Frame to End-Effector Frame
+
+The same point in end-effector coordinates:
+
+```
+p_ee = T_{ee→cam} · p_cam
+```
+
+Substituting p_cam from Step 1:
+```
+p_ee = T_{ee→cam} · (T_{cam→gel} · p_gel)
+```
+
+Expanded:
+```
+[x_ee]   [R_{ee→cam}  |  t_{ee→cam}]   [R_{cam→gel}  |  t_{cam→gel}]   [x_gel]
+[y_ee] = [            |             ] · [             |              ] · [y_gel]
+[z_ee]   [    0ᵀ      |      1      ]   [    0ᵀ       |      1       ]   [z_gel]
+[ 1  ]                                                                    [ 1   ]
+```
+
+**What this means physically:**
+- First transform moves point from GelSight to camera frame
+- Second transform moves point from camera to end-effector frame
+- Result: Point coordinates in end-effector frame
+
+**Matrix multiplication (T_{ee→cam} · T_{cam→gel}):**
+
+Using the multiplication rule:
+```
+T_{ee→gel} = [R_{ee→cam}·R_{cam→gel}  |  R_{ee→cam}·t_{cam→gel} + t_{ee→cam}]
+             [         0ᵀ              |              1                      ]
+```
+
+Let's verify the translation component:
+```
+t_{ee→gel} = R_{ee→cam}·t_{cam→gel} + t_{ee→cam}
+
+Physical meaning:
+- t_{cam→gel}: Vector from camera origin to GelSight origin (in camera frame)
+- R_{ee→cam}·t_{cam→gel}: Same vector rotated to ee frame orientation
+- + t_{ee→cam}: Add vector from ee origin to camera origin
+- Result: Total vector from ee origin to GelSight origin
+```
+
+---
+
+#### Step 3: Point in End-Effector Frame to Base Frame
+
+Finally, express the point in base coordinates:
+
+```
+p_base = T_{base→ee} · p_ee
+```
+
+Substituting p_ee from Step 2:
+```
+p_base = T_{base→ee} · (T_{ee→cam} · T_{cam→gel} · p_gel)
+```
+
+By associativity of matrix multiplication:
+```
+p_base = (T_{base→ee} · T_{ee→cam} · T_{cam→gel}) · p_gel
+```
+
+Let:
+```
+T_{base→gel} = T_{base→ee} · T_{ee→cam} · T_{cam→gel}
+```
+
+Then:
+```
+p_base = T_{base→gel} · p_gel
+```
+
+**This is our final transformation chain!** ∎
+
+---
+
+### Explicit Formula Derivation
+
+#### Rotation Component
+
+Starting from:
+```
+T_{base→gel} = T_{base→ee} · T_{ee→cam} · T_{cam→gel}
+```
+
+First multiply T_{ee→cam} · T_{cam→gel}:
+```
+Step A: R_{ee→gel} = R_{ee→cam} · R_{cam→gel}
+```
+
+Then multiply T_{base→ee} with the result:
+```
+Step B: R_{base→gel} = R_{base→ee} · R_{ee→gel}
+                     = R_{base→ee} · (R_{ee→cam} · R_{cam→gel})
+```
+
+By associativity:
+```
+R_{base→gel} = R_{base→ee} · R_{ee→cam} · R_{cam→gel}
+```
+
+**Physical interpretation:**
+- Each rotation matrix represents change of orientation between frames
+- Composition means: "First rotate by R_{cam→gel}, then by R_{ee→cam}, then by R_{base→ee}"
+- Order matters! Matrix multiplication is not commutative.
+
+---
+
+#### Translation Component
+
+For translations, we use the multiplication rule stepwise:
+
+**Step A:** Multiply T_{ee→cam} · T_{cam→gel}:
+```
+t_{ee→gel} = R_{ee→cam} · t_{cam→gel} + t_{ee→cam}
+```
+
+**Why?**
+- t_{cam→gel} is in camera coordinates
+- Must rotate it to ee coordinates: R_{ee→cam} · t_{cam→gel}
+- Then add the ee-to-camera offset: + t_{ee→cam}
+
+**Step B:** Multiply T_{base→ee} · T_{ee→gel}:
+```
+t_{base→gel} = R_{base→ee} · t_{ee→gel} + t_{base→ee}
+```
+
+Substituting t_{ee→gel} from Step A:
+```
+t_{base→gel} = R_{base→ee} · (R_{ee→cam} · t_{cam→gel} + t_{ee→cam}) + t_{base→ee}
+```
+
+Distributing:
+```
+t_{base→gel} = R_{base→ee}·R_{ee→cam}·t_{cam→gel} + R_{base→ee}·t_{ee→cam} + t_{base→ee}
+```
+
+**Final formulas:**
+```
+Rotation:
+R_{base→gel} = R_{base→ee} · R_{ee→cam} · R_{cam→gel}
+
+Translation:
+t_{base→gel} = t_{base→ee} + R_{base→ee}·t_{ee→cam} + R_{base→ee}·R_{ee→cam}·t_{cam→gel}
+```
+
+Or compactly:
+```
+t_{base→gel} = t_{base→ee} + R_{base→ee}·(t_{ee→cam} + R_{ee→cam}·t_{cam→gel})
+```
+
+---
+
+### Verification: What Comes From What
+
+#### Data Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ INPUTS (What We Measure)                                    │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. Robot Forward Kinematics:                               │
+│     Input: Joint angles [θ₁, θ₂, ..., θ₆]                  │
+│     Output: T_{base→ee} = [R_{base→ee} | t_{base→ee}]      │
+│     Source: Robot encoders + FK computation                 │
+│                                                             │
+│  2. ArUco Detection (Computer Vision):                      │
+│     Input: Camera RGB image + ArUco marker                  │
+│     Output: T_{camera→marker} = [R_{cam→mark} | t_{cam→mark}]│
+│     Source: OpenCV cv2.aruco.detectMarkers()                │
+│                                                             │
+│  3. PnP Solver (Computer Vision):                           │
+│     Input: 3D points (datasheet) + 2D pixels (image)        │
+│     Output: T_{camera→gelsight} = [R_{cam→gel} | t_{cam→gel}]│
+│     Source: OpenCV cv2.solvePnP()                           │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ CALIBRATION (What We Solve For)                            │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  AX=XB Solver:                                              │
+│     Input: Multiple pairs (T_{base→ee}, T_{camera→marker}) │
+│     Process: Solve equation A·X = X·B for all pose pairs   │
+│     Output: X = T_{ee→camera} = [R_{ee→cam} | t_{ee→cam}]  │
+│     Source: OpenCV cv2.calibrateHandEye()                   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ FINAL COMPUTATION (What We Want)                           │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  T_{base→gelsight} = T_{base→ee} · X · T_{camera→gelsight} │
+│                                                             │
+│  Components:                                                │
+│  R_{base→gel} = R_{base→ee} · R_{ee→cam} · R_{cam→gel}     │
+│                      ↑              ↑             ↑         │
+│                  (robot FK)    (AX=XB)        (PnP)        │
+│                                                             │
+│  t_{base→gel} = t_{base→ee} + R_{base→ee}·t_{ee→cam}       │
+│                 + R_{base→ee}·R_{ee→cam}·t_{cam→gel}        │
+│                      ↑              ↑             ↑         │
+│                  (robot FK)    (AX=XB)        (PnP)        │
+│                                                             │
+│  Result: GelSight position [x, y, z] in robot base frame   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Summary: Source of Each Component
+
+| Component | What It Is | Source Method | Tool/Algorithm |
+|-----------|------------|---------------|----------------|
+| **R_{base→ee}** | Gripper rotation in base | Robot FK from joint angles | Robot driver |
+| **t_{base→ee}** | Gripper position in base | Robot FK from joint angles | Robot driver |
+| **R_{ee→cam}** | Camera rotation in gripper | AX=XB calibration | cv2.calibrateHandEye() |
+| **t_{ee→cam}** | Camera position in gripper | AX=XB calibration | cv2.calibrateHandEye() |
+| **R_{cam→gel}** | GelSight rotation in camera | PnP from corner detection | cv2.solvePnP() |
+| **t_{cam→gel}** | GelSight position in camera | PnP from corner detection | cv2.solvePnP() |
+| **R_{base→gel}** | GelSight rotation in base | **Computed:** R₁·R₂·R₃ | Matrix multiplication |
+| **t_{base→gel}** | GelSight position in base | **Computed:** formula above | Matrix multiplication |
+
+**Key insight:**
+- Direct measurements: Robot FK, ArUco detection, PnP
+- Calibrated parameter: X (from AX=XB using multiple measurements)
+- Final result: Computed by chaining transformations
+
+---
+
 ## How We Obtain Each Transform
 
 ### 1. T_{base→ee} (Robot Base to End-Effector)
