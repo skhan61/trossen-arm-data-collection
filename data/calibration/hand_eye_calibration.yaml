@@ -1,0 +1,56 @@
+# Hand-Eye Calibration Result (X = T_ee_to_camera)
+# Source: URDF
+# Verified: Max error 6.72 mm, 1.93 deg
+#
+# This transforms points from camera_color_optical_frame to ee_gripper_link
+# Usage: T_base_to_point = T_base_to_ee @ X @ T_cam_to_point
+
+X_cam2gripper_matrix:
+- - 2.0865367673337428e-16
+  - -0.34202014332566844
+  - 0.9396926207859084
+  - -0.09741183404463385
+- - -0.9999999999999999
+  - 0.0
+  - 2.2204460492503128e-16
+  - 0.008999999999999998
+- - -7.594372760115068e-17
+  - -0.9396926207859084
+  - -0.34202014332566844
+  - 0.054272138451420565
+- - 0.0
+  - 0.0
+  - 0.0
+  - 1.0
+rotation_matrix:
+- - 2.0865367673337428e-16
+  - -0.34202014332566844
+  - 0.9396926207859084
+- - -0.9999999999999999
+  - 0.0
+  - 2.2204460492503128e-16
+- - -7.594372760115068e-17
+  - -0.9396926207859084
+  - -0.34202014332566844
+translation_xyz_meters:
+  x: -0.09741183404463385
+  y: 0.008999999999999998
+  z: 0.054272138451420565
+rotation_euler_degrees:
+  roll: -109.99999999999997
+  pitch: 1.2722218725854067e-14
+  yaw: -90.0
+quaternion_xyzw:
+- 0.5792279653395692
+- -0.5792279653395692
+- 0.4055797876726389
+- -0.405579787672639
+frames:
+  parent: ee_gripper_link
+  child: camera_color_optical_frame
+verification:
+  source: URDF
+  max_translation_error_mm: 6.716953571639097
+  max_rotation_error_deg: 1.9268168397672474
+  status: EXCELLENT
+method: URDF
