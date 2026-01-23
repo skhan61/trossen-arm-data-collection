@@ -1,0 +1,15 @@
+{
+  "dictionary": "DICT_4X4_50",
+  "marker_size_m": 0.025,
+  "marker_size_mm": 25,
+  "markers": {
+    "0": {
+      "name": "left_gelsight",
+      "description": "Left gelsight sensor marker"
+    },
+    "1": {
+      "name": "right_gelsight",
+      "description": "Right gelsight sensor marker"
+    }
+  }
+}
