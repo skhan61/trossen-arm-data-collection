@@ -82,24 +82,42 @@ def load_X_from_verification_data():
 
 def load_X_from_launch():
     """
-    Load X from camera_pose.launch.py values.
+    Load X by parsing camera_pose.launch.py file.
 
-    From launch file:
-        --frame-id ee_gripper_link
-        --child-frame-id camera_color_optical_frame
-        --x -0.0175075
-        --y 0.0145861
-        --z 0.0612924
-        --qx -0.578712
-        --qy 0.582021
-        --qz -0.409742
-        --qw 0.398065
+    Reads the actual values from the launch file arguments.
     """
-    # Translation (meters)
-    t = np.array([-0.0175075, 0.0145861, 0.0612924])
+    launch_file = Path(__file__).parent.parent / "camera_pose.launch.py"
 
-    # Quaternion [x, y, z, w] - scipy format
-    quat = np.array([-0.578712, 0.582021, -0.409742, 0.398065])
+    if not launch_file.exists():
+        raise FileNotFoundError(f"Launch file not found: {launch_file}")
+
+    # Read and parse the launch file
+    with open(launch_file, "r") as f:
+        content = f.read()
+
+    # Parse values from the arguments list
+    import re
+
+    def extract_value(param_name):
+        # Match pattern: "--param_name",\n                "value",
+        pattern = rf'"--{param_name}",\s*\n\s*"([^"]+)"'
+        match = re.search(pattern, content)
+        if match:
+            return float(match.group(1))
+        raise ValueError(f"Could not find --{param_name} in launch file")
+
+    # Extract translation
+    x = extract_value("x")
+    y = extract_value("y")
+    z = extract_value("z")
+    t = np.array([x, y, z])
+
+    # Extract quaternion
+    qx = extract_value("qx")
+    qy = extract_value("qy")
+    qz = extract_value("qz")
+    qw = extract_value("qw")
+    quat = np.array([qx, qy, qz, qw])
 
     # Convert quaternion to rotation matrix
     rot = R.from_quat(quat)

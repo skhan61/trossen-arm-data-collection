@@ -309,35 +309,23 @@ t_{base→gel} = t_{base→ee} + R_{base→ee}·(t_{ee→cam} + R_{ee→cam}·t_
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ INPUTS (What We Measure)                                    │
+│ INPUTS (What We Obtain)                                     │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  1. Robot Forward Kinematics:                               │
-│     Input: Joint angles [θ₁, θ₂, ..., θ₆]                  │
+│  1. Robot End-Effector Pose:                                │
 │     Output: T_{base→ee} = [R_{base→ee} | t_{base→ee}]      │
-│     Source: Robot encoders + FK computation                 │
+│             (Cartesian 6DOF: x, y, z, roll, pitch, yaw)     │
+│     Source: Robot API (driver computes FK internally)       │
 │                                                             │
-│  2. ArUco Detection (Computer Vision):                      │
-│     Input: Camera RGB image + ArUco marker                  │
-│     Output: T_{camera→marker} = [R_{cam→mark} | t_{cam→mark}]│
-│     Source: OpenCV cv2.aruco.detectMarkers()                │
-│                                                             │
-│  3. PnP Solver (Computer Vision):                           │
-│     Input: 3D points (datasheet) + 2D pixels (image)        │
-│     Output: T_{camera→gelsight} = [R_{cam→gel} | t_{cam→gel}]│
-│     Source: OpenCV cv2.solvePnP()                           │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│ CALIBRATION (What We Solve For)                            │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  AX=XB Solver:                                              │
-│     Input: Multiple pairs (T_{base→ee}, T_{camera→marker}) │
-│     Process: Solve equation A·X = X·B for all pose pairs   │
+│  2. Hand-Eye Calibration (Camera-to-EE transform):          │
 │     Output: X = T_{ee→camera} = [R_{ee→cam} | t_{ee→cam}]  │
-│     Source: OpenCV cv2.calibrateHandEye()                   │
+│     Source: MoveIt Calibration library                      │
+│             (uses ArUco marker + multiple robot poses)      │
+│                                                             │
+│  3. Camera-to-GelSight Calibration:                         │
+│     Output: T_{camera→gelsight} = [R_{cam→gel} | t_{cam→gel}]│
+│     Source: Custom script using camera image of GelSight    │
+│             sensor mounted on end-effector                  │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
                               ↓
@@ -350,12 +338,12 @@ t_{base→gel} = t_{base→ee} + R_{base→ee}·(t_{ee→cam} + R_{ee→cam}·t_
 │  Components:                                                │
 │  R_{base→gel} = R_{base→ee} · R_{ee→cam} · R_{cam→gel}     │
 │                      ↑              ↑             ↑         │
-│                  (robot FK)    (AX=XB)        (PnP)        │
+│                 (Robot API)   (MoveIt)    (Custom script)  │
 │                                                             │
 │  t_{base→gel} = t_{base→ee} + R_{base→ee}·t_{ee→cam}       │
 │                 + R_{base→ee}·R_{ee→cam}·t_{cam→gel}        │
 │                      ↑              ↑             ↑         │
-│                  (robot FK)    (AX=XB)        (PnP)        │
+│                 (Robot API)   (MoveIt)    (Custom script)  │
 │                                                             │
 │  Result: GelSight position [x, y, z] in robot base frame   │
 │                                                             │
@@ -366,21 +354,22 @@ t_{base→gel} = t_{base→ee} + R_{base→ee}·(t_{ee→cam} + R_{ee→cam}·t_
 
 ### Summary: Source of Each Component
 
-| Component | What It Is | Source Method | Tool/Algorithm |
-|-----------|------------|---------------|----------------|
-| **R_{base→ee}** | Gripper rotation in base | Robot FK from joint angles | Robot driver |
-| **t_{base→ee}** | Gripper position in base | Robot FK from joint angles | Robot driver |
-| **R_{ee→cam}** | Camera rotation in gripper | AX=XB calibration | cv2.calibrateHandEye() |
-| **t_{ee→cam}** | Camera position in gripper | AX=XB calibration | cv2.calibrateHandEye() |
-| **R_{cam→gel}** | GelSight rotation in camera | PnP from corner detection | cv2.solvePnP() |
-| **t_{cam→gel}** | GelSight position in camera | PnP from corner detection | cv2.solvePnP() |
+| Component | What It Is | Source Method | Tool |
+|-----------|------------|---------------|------|
+| **R_{base→ee}** | Gripper rotation in base | Robot API (Cartesian 6DOF) | Robot driver |
+| **t_{base→ee}** | Gripper position in base | Robot API (Cartesian 6DOF) | Robot driver |
+| **R_{ee→cam}** | Camera rotation in gripper | Hand-eye calibration | MoveIt Calibration |
+| **t_{ee→cam}** | Camera position in gripper | Hand-eye calibration | MoveIt Calibration |
+| **R_{cam→gel}** | GelSight rotation in camera | Camera-to-GelSight calibration | Custom script |
+| **t_{cam→gel}** | GelSight position in camera | Camera-to-GelSight calibration | Custom script |
 | **R_{base→gel}** | GelSight rotation in base | **Computed:** R₁·R₂·R₃ | Matrix multiplication |
 | **t_{base→gel}** | GelSight position in base | **Computed:** formula above | Matrix multiplication |
 
 **Key insight:**
-- Direct measurements: Robot FK, ArUco detection, PnP
-- Calibrated parameter: X (from AX=XB using multiple measurements)
-- Final result: Computed by chaining transformations
+- T_{base→ee}: From robot API directly (Cartesian 6DOF)
+- T_{ee→camera} (X): From MoveIt Calibration library (hand-eye calibration)
+- T_{camera→gelsight}: From custom script using camera image of GelSight on EE
+- Final result: Computed by chaining the three transformations
 
 ---
 
@@ -397,19 +386,59 @@ T_{base→ee} = [R_{base→ee}  |  t_{base→ee}]
 - **t_{base→ee}** = Gripper position in base frame (3×1 vector [x, y, z]ᵀ)
 
 #### How we get it:
-**From robot forward kinematics** (robot always knows this!)
+**Directly from the robot API in Cartesian 6DOF format** (robot driver computes FK internally)
 
 ```python
-# Robot API call
+# Robot API call - returns Cartesian pose directly
 ee_pose = robot.get_ee_pose()
-# Returns: [x, y, z, roll, pitch, yaw]
+# Returns: [x, y, z, roll, pitch, yaw] in Cartesian coordinates
 
-# Extract components:
-t_{base→ee} = [x, y, z]ᵀ
-R_{base→ee} = Rot_z(yaw) · Rot_y(pitch) · Rot_x(roll)
+# The robot driver internally computes:
+#   1. Reads joint encoders [θ₁, θ₂, ..., θ₆]
+#   2. Applies forward kinematics using robot's kinematic model
+#   3. Returns end-effector pose in Cartesian 6DOF
 ```
 
-**Source:** Robot's internal joint encoders → forward kinematics computation
+#### Converting 6DOF to 4×4 Transformation Matrix
+
+Given pose = [x, y, z, roll (φ), pitch (θ), yaw (ψ)]:
+
+**Translation vector:**
+```
+t = [x, y, z]ᵀ
+```
+
+**Rotation matrix (ZYX Euler angles convention):**
+```
+R = Rz(ψ) · Ry(θ) · Rx(φ)
+```
+
+Where the individual rotation matrices are:
+
+```
+Rx(φ) = [1      0       0   ]      Ry(θ) = [ cos(θ)  0  sin(θ)]      Rz(ψ) = [cos(ψ)  -sin(ψ)  0]
+        [0   cos(φ)  -sin(φ)]              [   0     1    0   ]              [sin(ψ)   cos(ψ)  0]
+        [0   sin(φ)   cos(φ)]              [-sin(θ)  0  cos(θ)]              [  0        0     1]
+```
+
+**Combined rotation matrix R = Rz(ψ) · Ry(θ) · Rx(φ):**
+```
+R = [cos(ψ)cos(θ)   cos(ψ)sin(θ)sin(φ)-sin(ψ)cos(φ)   cos(ψ)sin(θ)cos(φ)+sin(ψ)sin(φ)]
+    [sin(ψ)cos(θ)   sin(ψ)sin(θ)sin(φ)+cos(ψ)cos(φ)   sin(ψ)sin(θ)cos(φ)-cos(ψ)sin(φ)]
+    [  -sin(θ)              cos(θ)sin(φ)                       cos(θ)cos(φ)            ]
+```
+
+**Final 4×4 homogeneous transformation matrix:**
+```
+T_{base→ee} = [R  |  t]  =  [r₁₁  r₁₂  r₁₃  x]
+              [0ᵀ |  1]     [r₂₁  r₂₂  r₂₃  y]
+                            [r₃₁  r₃₂  r₃₃  z]
+                            [ 0    0    0   1]
+```
+
+**Source:** Robot API call (forward kinematics computed internally by robot driver)
+
+**Note:** You don't need to compute FK yourself - the robot driver handles this and returns the Cartesian pose directly.
 
 **Accuracy:** High (±0.1mm) - robot knows its own position well
 
@@ -426,17 +455,20 @@ X = T_{ee→camera} = [R_{ee→cam}  |  t_{ee→cam}]
 - **t_{ee→cam}** = Camera position relative to gripper (3×1 vector)
 
 #### How we get it:
-**Hand-Eye Calibration using AX=XB method**
+**MoveIt Calibration Library (Hand-Eye Calibration)**
 
-##### Method Overview:
-1. **Setup:** Place an ArUco marker or checkerboard in a fixed position in the workspace
-2. **Data Collection:** Move robot to 15-30 diverse poses where camera can see the marker
-3. **At each pose, collect:**
-   - T_{base→ee} (from robot forward kinematics)
-   - T_{camera→marker} (from computer vision - ArUco/checkerboard detection)
-4. **Solve AX=XB equation** to find X = T_{ee→camera}
+**IMPORTANT:** This calibration is done entirely by MoveIt Calibration library. Without MoveIt, this calibration cannot be performed!
 
-##### The AX=XB Equation:
+##### What MoveIt Calibration Does:
+
+MoveIt Calibration is a complete hand-eye calibration solution that handles:
+1. **ArUco marker detection** - Detects the marker in camera images automatically
+2. **Robot pose collection** - Gets T_{base→ee} from robot at each position
+3. **Data pairing** - Collects (robot pose, marker pose) pairs at multiple positions
+4. **AX=XB solving** - Solves the hand-eye calibration equation internally
+5. **Result output** - Outputs T_{ee→camera} transform
+
+##### The AX=XB Equation (solved internally by MoveIt):
 
 For any two robot poses i and j:
 ```
@@ -444,45 +476,94 @@ A_ij × X = X × B_ij
 
 Where:
 A_ij = (T_{base→ee}^j)⁻¹ · T_{base→ee}^i  (robot motion from pose i to j)
-B_ij = (T_{camera→marker}^j)⁻¹ · T_{camera→marker}^i  (camera motion from pose i to j)
-X = T_{ee→camera}  (what we're solving for - constant!)
+B_ij = (T_{camera→marker}^j)⁻¹ · T_{camera→marker}^i  (observed camera motion)
+X = T_{ee→camera}  (what MoveIt solves for)
 ```
 
-**Key insight:** The marker doesn't move, so both motion chains must be consistent through the unknown X!
+**Key insight:** The marker is fixed in the world. When robot moves, both the robot motion (A) and observed camera motion (B) must be consistent through X.
 
-##### Tools Used:
-- **Data Collection:** ROS 2 + MoveIt 2 for motion planning and safe robot movement
-  - MoveIt Calibration GUI (RViz interface)
-  - OR custom script using MoveIt Python API
-- **Detection:** OpenCV for ArUco marker or checkerboard detection
-- **Solver:** OpenCV `cv2.calibrateHandEye()` function
-  - Implements Tsai-Lenz, Park, Horaud, Andreff, or Daniilidis methods
+##### Experiment Setup:
 
-##### Workflow:
 ```
-1. Launch ROS 2 + MoveIt
-   → ros2 launch moveit_calibration hand_eye_calibration.launch.py
-
-2. Move robot to diverse poses (manually or programmatically)
-   → Ensure marker visible in all poses
-   → Maximize rotation and translation diversity
-
-3. At each pose:
-   → Detect ArUco/checkerboard in camera image (CV)
-   → Record T_{camera→marker} (from detection)
-   → Record T_{base→ee} (from robot)
-
-4. After collecting 15+ samples:
-   → Run AX=XB solver
-   → Get X = T_{ee→camera}
-
-5. Save calibration
-   → Store R_{ee→cam} and t_{ee→cam} to file
+Physical Setup:
+┌─────────────────────────────────────────────────────────┐
+│                                                         │
+│    [ArUco Marker]  ← Fixed on table, does NOT move     │
+│          ↑                                              │
+│          │ Camera sees marker                           │
+│          │                                              │
+│    [RealSense Camera] ← Mounted on gripper             │
+│          │                                              │
+│    [Robot Gripper/EE]                                  │
+│          │                                              │
+│    [Robot Arm]                                          │
+│          │                                              │
+│    [Robot Base]                                         │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
 ```
 
-**Source:** Computer vision (ArUco/checkerboard detection) + Mathematical optimization (AX=XB solver)
+##### MoveIt Calibration Workflow:
 
-**Accuracy:** High (±0.3-0.5mm) when properly done with diverse poses
+```
+Step 1: Setup
+   - Fix ArUco marker on table (must NOT move during calibration!)
+   - Mount RealSense camera on robot gripper
+   - Launch MoveIt Calibration:
+     → ros2 launch moveit_calibration hand_eye_calibration.launch.py
+
+Step 2: Data Collection (15-30 poses)
+   - Move robot to position where camera sees marker
+   - MoveIt automatically:
+     → Detects ArUco marker in camera image
+     → Records T_{camera→marker} (marker pose in camera frame)
+     → Records T_{base→ee} (gripper pose from robot API)
+     → Stores the pair
+   - Repeat at diverse positions with different:
+     → Distances from marker (30-60 cm)
+     → Viewing angles (0-60° off-axis)
+     → Robot orientations (roll, pitch, yaw variations)
+
+Step 3: Solve (automatic)
+   - After collecting enough samples, MoveIt solves AX=XB
+   - Uses optimization to find best X that satisfies all pose pairs
+
+Step 4: Output
+   - MoveIt outputs: X = T_{ee→camera}
+   - Save to calibration file for later use
+```
+
+##### Why Diverse Poses Matter:
+
+```
+Good poses (maximize information):
+┌──────────────────────────────────────────────────────────┐
+│  Position 1      Position 2      Position 3             │
+│     ╱               │               ╲                   │
+│    ╱                │                ╲                  │
+│   📷               📷               📷  ← Different angles│
+│                                                          │
+│              [ArUco Marker]                              │
+│                                                          │
+│  Position 4      Position 5      Position 6             │
+│     📷              📷              📷   ← Different distances│
+│      ↑               ↑               ↑                  │
+│     far           medium          close                 │
+└──────────────────────────────────────────────────────────┘
+
+Bad poses (insufficient information):
+┌──────────────────────────────────────────────────────────┐
+│  📷 📷 📷 📷 📷 📷  ← All same angle, same distance      │
+│        ↓                                                 │
+│  [ArUco Marker]                                          │
+│                                                          │
+│  Result: Poor calibration, high error!                  │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Source:** MoveIt Calibration library (handles everything internally)
+
+**Accuracy:** ±0.3-0.5mm when done with diverse poses
 
 ---
 
@@ -497,56 +578,200 @@ T_{cam→gel} = [R_{cam→gel}  |  t_{cam→gel}]
 - **t_{cam→gel}** = GelSight position relative to camera (3×1 vector)
 
 #### How we get it:
-**PnP (Perspective-n-Point) method using camera image**
+**Custom Script using Camera Image of GelSight Sensor**
 
-##### Method Overview:
-1. **Physical measurement:** Get GelSight dimensions from datasheet
-   - Field of View: 18.6mm (H) × 14.3mm (V)
-   - Compute 4 corner positions relative to GelSight center
+This calibration is done by our own script that captures an image of the GelSight sensor (which is mounted on the end-effector) using the RealSense camera (also on the end-effector).
 
-2. **Image capture:** Position robot so camera sees GelSight clearly
+##### Physical Setup:
 
-3. **Corner detection:**
-   - Detect or manually click 4 visible corners of GelSight in camera image
-   - Get 2D pixel coordinates: [(u₁, v₁), (u₂, v₂), (u₃, v₃), (u₄, v₄)]
-
-4. **PnP solver:**
-   - Input: 3D corner positions (from datasheet) + 2D pixel positions (from image)
-   - Output: R_{cam→gel} and t_{cam→gel}
-
-##### Corner Positions (from GelSight datasheet):
 ```
-3D positions in GelSight frame:
-Corner 1 (top-left):     [ 9.3mm,  7.15mm, 0]
-Corner 2 (top-right):    [-9.3mm,  7.15mm, 0]
-Corner 3 (bottom-right): [-9.3mm, -7.15mm, 0]
-Corner 4 (bottom-left):  [ 9.3mm, -7.15mm, 0]
-```
+┌─────────────────────────────────────────────────────────────┐
+│  END-EFFECTOR ASSEMBLY                                      │
+│                                                             │
+│     ┌─────────────┐                                         │
+│     │  RealSense  │ ← Camera (captures image)              │
+│     │   Camera    │                                         │
+│     └──────┬──────┘                                         │
+│            │                                                │
+│            │ Camera looks at GelSight                       │
+│            ↓                                                │
+│     ┌─────────────┐                                         │
+│     │  GelSight   │ ← Tactile sensor (visible in image)    │
+│     │   Sensor    │                                         │
+│     └─────────────┘                                         │
+│            │                                                │
+│     [Robot Gripper]                                         │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 
-##### PnP Algorithm:
-```python
-# Input
-corners_3d = [[0.0093, 0.00715, 0], ...]  # From datasheet
-corners_2d = [[u1, v1], [u2, v2], ...]    # From image (click or detect)
-camera_matrix = [...]  # Camera intrinsics (from camera calibration)
-dist_coeffs = [...]    # Distortion coefficients
-
-# OpenCV PnP solver
-success, rvec, tvec = cv2.solvePnP(
-    corners_3d,
-    corners_2d,
-    camera_matrix,
-    dist_coeffs
-)
-
-# Convert to rotation matrix and translation
-R_{cam→gel}, _ = cv2.Rodrigues(rvec)
-t_{cam→gel} = tvec
+Key: Both camera and GelSight are rigidly mounted on the gripper.
+     Their relative position is FIXED and does not change.
 ```
 
-**Source:** Computer vision (corner detection in image) + Camera geometry (PnP solver)
+##### Why This Works:
 
-**Accuracy:** Good (±0.5-1mm) depending on corner detection accuracy
+Since both the RealSense camera and GelSight sensor are mounted on the same rigid body (the gripper), their relative transform T_{camera→gelsight} is **constant**. We only need to measure it once!
+
+##### Experiment Procedure:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ STEP 1: Position the Robot                                  │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│   Move robot to a position where the RealSense camera      │
+│   can clearly see the GelSight sensor surface.             │
+│                                                             │
+│   This may require:                                         │
+│   - Using a mirror to reflect the GelSight into camera view│
+│   - OR temporarily detaching camera to image GelSight      │
+│   - OR using a second external camera                       │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ STEP 2: Capture Image                                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│   Capture RGB image from RealSense camera showing the      │
+│   GelSight sensor clearly visible in the frame.            │
+│                                                             │
+│   Image should show:                                        │
+│   - GelSight sensing surface (rectangular area)            │
+│   - Clear corners or identifiable features                 │
+│   - Good lighting, no blur                                  │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ STEP 3: Identify GelSight Features in Image                │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│   In the captured image, identify known points on GelSight:│
+│                                                             │
+│   Option A: Click 4 corners of GelSight sensing surface    │
+│   ┌─────────────────────┐                                  │
+│   │ •               •   │  ← Click corners in image        │
+│   │                     │                                   │
+│   │                     │                                   │
+│   │ •               •   │                                   │
+│   └─────────────────────┘                                  │
+│                                                             │
+│   Option B: Use ArUco marker attached to GelSight          │
+│   (if marker is placed on GelSight housing)                │
+│                                                             │
+│   Option C: Detect GelSight edges automatically            │
+│   (using edge detection algorithms)                         │
+│                                                             │
+│   Result: 2D pixel coordinates [(u₁,v₁), (u₂,v₂), ...]     │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ STEP 4: Define 3D Points (from GelSight Dimensions)        │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│   From GelSight datasheet, we know the physical dimensions:│
+│                                                             │
+│   Sensing area: 18.6mm (width) × 14.3mm (height)           │
+│                                                             │
+│   Define 3D coordinates in GelSight frame (center = origin)│
+│                                                             │
+│   Corner 1 (top-left):     (+9.3mm, +7.15mm, 0)            │
+│   Corner 2 (top-right):    (-9.3mm, +7.15mm, 0)            │
+│   Corner 3 (bottom-right): (-9.3mm, -7.15mm, 0)            │
+│   Corner 4 (bottom-left):  (+9.3mm, -7.15mm, 0)            │
+│                                                             │
+│   Note: Z=0 means corners lie on the GelSight surface plane│
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ STEP 5: Solve PnP (Perspective-n-Point)                    │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│   PnP Problem:                                              │
+│   Given: - 3D points in GelSight frame (from dimensions)   │
+│          - 2D points in image (from Step 3)                │
+│          - Camera intrinsics (from camera calibration)     │
+│   Find:  - T_{camera→gelsight}                             │
+│                                                             │
+│   Mathematical formulation:                                 │
+│                                                             │
+│   For each point i:                                         │
+│                                                             │
+│   [u_i]       [p_i^gel]                                     │
+│   [v_i] = K · T_{cam→gel} · [  1  ]                        │
+│   [ 1 ]                                                     │
+│                                                             │
+│   Where:                                                    │
+│   - (u_i, v_i) = pixel coordinates                         │
+│   - K = camera intrinsic matrix (3×3)                      │
+│   - T_{cam→gel} = transform we want to find (4×4)         │
+│   - p_i^gel = 3D point in GelSight frame                   │
+│                                                             │
+│   PnP solver finds R and t that minimize reprojection error│
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ STEP 6: Output Transform                                    │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│   PnP solver outputs:                                       │
+│   - rvec: rotation vector (3×1)                            │
+│   - tvec: translation vector (3×1)                         │
+│                                                             │
+│   Convert to transformation matrix:                         │
+│                                                             │
+│   R_{cam→gel} = rodrigues(rvec)   (3×3 rotation matrix)   │
+│   t_{cam→gel} = tvec              (3×1 translation)        │
+│                                                             │
+│   T_{cam→gel} = [R_{cam→gel}  |  t_{cam→gel}]             │
+│                 [    0ᵀ       |      1      ]              │
+│                                                             │
+│   Save to calibration file for later use.                  │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+##### Required Inputs:
+
+| Input | Source | Description |
+|-------|--------|-------------|
+| Camera image | RealSense camera | Image showing GelSight sensor |
+| 2D pixel coordinates | Manual click or detection | Corners of GelSight in image |
+| 3D GelSight dimensions | Datasheet | Physical size of sensing area |
+| Camera intrinsics (K) | Camera calibration | Focal length, principal point |
+| Distortion coefficients | Camera calibration | Lens distortion parameters |
+
+##### Camera Intrinsic Matrix K:
+
+```
+K = [fx   0  cx]
+    [ 0  fy  cy]
+    [ 0   0   1]
+
+Where:
+- fx, fy = focal lengths in pixels
+- cx, cy = principal point (image center)
+```
+
+##### PnP Reprojection Error:
+
+The solver minimizes:
+```
+E = Σᵢ || (u_i, v_i) - project(T_{cam→gel} · p_i^gel) ||²
+
+Where project() applies camera projection:
+project(P) = K · [P_x/P_z, P_y/P_z, 1]ᵀ
+```
+
+**Source:** Custom script (camera image + PnP solver)
+
+**Accuracy:** ±0.5-1mm (depends on corner detection accuracy and camera calibration quality)
+
+**Note:** This calibration only needs to be done ONCE since the camera and GelSight are rigidly mounted together
 
 ---
 
@@ -835,33 +1060,28 @@ For each touch sample:
 
 ## Tools and Methods Summary
 
-### Computer Vision (CV) Sources
+### Transform Sources
 
-All transforms come from computer vision methods:
+| Transform | Source | Tool/Method |
+|-----------|--------|-------------|
+| T_{base→ee} | Robot API | `robot.get_ee_pose()` returns Cartesian 6DOF |
+| T_{ee→camera} (X) | Hand-eye calibration | MoveIt Calibration library |
+| T_{camera→gelsight} | Camera-to-GelSight calibration | Custom script (camera image of GelSight on EE) |
 
-| Transform | CV Method | Tool | Input | Output |
-|-----------|-----------|------|-------|--------|
-| T_{camera→marker} | ArUco detection | OpenCV `cv2.aruco.detectMarkers()` | Camera image | Marker pose |
-| T_{ee→camera} (X) | AX=XB solver | OpenCV `cv2.calibrateHandEye()` | Multiple (gripper, marker) pairs | Camera pose in gripper frame |
-| T_{camera→gelsight} | PnP solver | OpenCV `cv2.solvePnP()` | 3D corners + 2D pixels | GelSight pose in camera frame |
+### MoveIt Calibration Role
 
-### Robot Source
+MoveIt Calibration library handles the complete hand-eye calibration:
+- **ArUco marker detection:** Detects marker in camera images
+- **Data collection:** Collects (robot pose, marker pose) pairs at multiple positions
+- **AX=XB solver:** Solves the hand-eye calibration equation internally
+- **Output:** T_{ee→camera} transform
 
-| Transform | Source | Method |
-|-----------|--------|--------|
-| T_{base→ee} | Robot FK | API call `robot.get_ee_pose()` |
+### Robot API Role
 
-### ROS 2 + MoveIt Role
-
-**MoveIt does NOT solve AX=XB directly!**
-
-MoveIt helps with:
-- **Motion planning:** Safe, collision-free robot movements
-- **Data collection interface:** GUI for calibration workflow
-- **Pose sampling:** Generate diverse robot poses for calibration
-- **Visualization:** See robot, camera, marker in RViz
-
-**The actual calibration solving is done by OpenCV CV algorithms!**
+The robot driver provides end-effector pose directly:
+- **Input:** API call to robot driver
+- **Output:** Cartesian 6DOF (x, y, z, roll, pitch, yaw)
+- **Note:** FK is computed internally by the driver, no manual computation needed
 
 ---
 
