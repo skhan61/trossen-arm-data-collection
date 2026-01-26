@@ -1,0 +1,6 @@
+2026-01-26 12:11:34,351 - INFO - Gelsight Calibration Data Collection
+2026-01-26 12:11:34,351 - INFO -   Pose: home
+2026-01-26 12:11:34,351 - INFO -   Gripper: 26.0mm - 42.0mm
+2026-01-26 12:11:34,351 - INFO -   Openings: 17 | Repeats: 3
+2026-01-26 12:11:34,351 - INFO -   Total: 51 samples
+2026-01-26 12:11:34,352 - INFO - Connecting to RealSense camera...
