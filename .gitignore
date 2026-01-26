@@ -12,6 +12,7 @@ env/
 __pycache__/
 *.py[cod]
 *$py.class
+.python-version
 *.so
 .Python
 build/
