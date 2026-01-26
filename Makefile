@@ -1,4 +1,4 @@
-.PHONY: install test lint format clean pre-commit push help
+.PHONY: install test lint format clean pre-commit push push-fast help
 
 help:
 	@echo "Available targets:"
@@ -9,6 +9,7 @@ help:
 	@echo "  clean       - Clean cache files"
 	@echo "  pre-commit  - Install pre-commit hooks"
 	@echo "  push        - Push to remote"
+	@echo "  push-fast   - Push to remote (skip pre-commit)"
 
 install:
 	uv sync
@@ -36,4 +37,9 @@ pre-commit:
 push:
 	git add -A
 	git commit -m "Update codebase" || true
+	git push origin HEAD
+
+push-fast:
+	git add -A
+	git commit -m "Update codebase" --no-verify || true
 	git push origin HEAD
