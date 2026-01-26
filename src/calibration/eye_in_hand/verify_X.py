@@ -21,7 +21,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import json
 import re
-import yaml
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
@@ -259,69 +258,6 @@ def verify_X(X, data, name):
     return {"translation_mm": max_trans_error, "rotation_deg": max_rot_error}
 
 
-def save_calibration_yaml(X, error, source_name, output_dir):
-    """Save the best X calibration to a YAML file."""
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    yaml_path = output_dir / "hand_eye_calibration.yaml"
-
-    # Get rotation components
-    rot = R.from_matrix(X[:3, :3])
-    euler = rot.as_euler("xyz", degrees=True)
-    quat = rot.as_quat()  # [x, y, z, w]
-
-    # Determine status
-    if error["translation_mm"] < 10 and error["rotation_deg"] < 5:
-        status = "EXCELLENT"
-    elif error["translation_mm"] < 30 and error["rotation_deg"] < 15:
-        status = "ACCEPTABLE"
-    else:
-        status = "POOR"
-
-    calibration_data = {
-        "X_cam2gripper_matrix": X.tolist(),
-        "rotation_matrix": X[:3, :3].tolist(),
-        "translation_xyz_meters": {
-            "x": float(X[0, 3]),
-            "y": float(X[1, 3]),
-            "z": float(X[2, 3]),
-        },
-        "rotation_euler_degrees": {
-            "roll": float(euler[0]),
-            "pitch": float(euler[1]),
-            "yaw": float(euler[2]),
-        },
-        "quaternion_xyzw": [float(q) for q in quat],
-        "frames": {
-            "parent": "ee_gripper_link",
-            "child": "camera_color_optical_frame",
-        },
-        "verification": {
-            "source": source_name,
-            "max_translation_error_mm": float(error["translation_mm"]),
-            "max_rotation_error_deg": float(error["rotation_deg"]),
-            "status": status,
-        },
-        "method": source_name,
-    }
-
-    with open(yaml_path, "w") as f:
-        f.write("# Hand-Eye Calibration Result (X = T_ee_to_camera)\n")
-        f.write(f"# Source: {source_name}\n")
-        f.write(
-            f"# Verified: Max error {error['translation_mm']:.2f} mm, {error['rotation_deg']:.2f} deg\n"
-        )
-        f.write("#\n")
-        f.write(
-            "# This transforms points from camera_color_optical_frame to ee_gripper_link\n"
-        )
-        f.write("# Usage: T_base_to_point = T_base_to_ee @ X @ T_cam_to_point\n\n")
-        yaml.dump(calibration_data, f, default_flow_style=False, sort_keys=False)
-
-    logger.info(f"Saved calibration YAML to: {yaml_path}")
-    return yaml_path
-
-
 def main():
     logger.info("=" * 70)
     logger.info("Verify X (Hand-Eye Calibration)")
@@ -353,18 +289,6 @@ def main():
     logger.info(
         f"  X from launch.py    | {error_launch['translation_mm']:>15.2f} mm | {error_launch['rotation_deg']:>12.2f}°"
     )
-
-    best_name = "launch.py"
-    best_X = X_launch
-    best_error = error_launch
-
-    logger.info(
-        f"  Result: {best_name} (translation={best_error['translation_mm']:.2f}mm, rotation={best_error['rotation_deg']:.2f}°)"
-    )
-
-    # Save best X to YAML (to project root: data/calibration/)
-    output_dir = Path(__file__).parent.parent.parent.parent / "data" / "calibration"
-    save_calibration_yaml(best_X, best_error, best_name, output_dir)
 
     return 0
 
