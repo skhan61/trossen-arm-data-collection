@@ -14,6 +14,7 @@ Log files are saved following the folder tree of the source file:
     src/calibration/eye_in_hand/script.py -> logs/calibration/eye_in_hand/script_TIMESTAMP.log
 """
 
+import inspect
 import logging
 import sys
 from pathlib import Path
@@ -29,6 +30,21 @@ if str(PROJECT_ROOT) not in sys.path:
 
 # Track initialized loggers to avoid duplicate handlers
 _initialized_loggers = set()
+
+
+def _get_caller_path() -> Path | None:
+    """Get the file path of the caller that invoked get_logger()."""
+    for frame_info in inspect.stack():
+        frame_path = Path(frame_info.filename)
+        # Skip this file and standard library
+        if frame_path == Path(__file__):
+            continue
+        if "site-packages" in str(frame_path):
+            continue
+        # Return the first caller outside this module
+        if frame_path.is_file():
+            return frame_path
+    return None
 
 
 def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
@@ -49,6 +65,19 @@ def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
         logger = get_logger(__name__)
         logger.info("Starting process...")
     """
+    # If __main__, resolve actual file path
+    if name == "__main__":
+        caller_path = _get_caller_path()
+        if caller_path:
+            try:
+                rel_path = caller_path.relative_to(PROJECT_ROOT)
+                # Convert path to module-like name: src/calibration/foo.py -> src.calibration.foo
+                name = (
+                    str(rel_path.with_suffix("")).replace("/", ".").replace("\\", ".")
+                )
+            except ValueError:
+                pass  # Not under PROJECT_ROOT, use __main__
+
     logger = logging.getLogger(name)
 
     # Avoid adding duplicate handlers
@@ -66,9 +95,7 @@ def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
         parts = parts[1:]
 
     # Script name is the last part
-    script_name = parts[-1] if parts else "main"
-    if script_name == "__main__":
-        script_name = "main"
+    script_name = parts[-1] if parts else "unknown"
 
     # Folder path is everything except the last part
     folder_parts = parts[:-1] if len(parts) > 1 else []

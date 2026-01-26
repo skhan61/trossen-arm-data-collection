@@ -8,7 +8,7 @@ This script orchestrates the gelsight calibration workflow:
 3. Verify calibration
 
 Usage:
-    python src/calibration/gelsight_calibration/main.py
+    python src/calibration/gelsight_calibration/run_gelsight_calibration.py
 """
 
 import sys

@@ -28,9 +28,12 @@ clean:
 	find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	rm -rf logs/ _logs/ 2>/dev/null || true
 
 pre-commit:
 	uv run pre-commit install
 
 push:
+	git add -A
+	git commit -m "Update codebase" || true
 	git push origin HEAD

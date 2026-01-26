@@ -8,7 +8,7 @@ This script orchestrates the eye-in-hand calibration workflow:
 3. Verify X using collected data (or collect data first if needed)
 
 Usage:
-    python src/calibration/eye_in_hand/main.py
+    python src/calibration/eye_in_hand/run_eye_in_hand_calibration.py
 """
 
 import sys
