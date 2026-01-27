@@ -64,3 +64,10 @@ _logs/
 
 # Documentation (auto-generated)
 doc/
+
+# Dataset (large files)
+dataset/
+
+# Images
+*.jpeg
+*.jpg
