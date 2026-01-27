@@ -1,0 +1,7 @@
+{
+  "sample_id": "000001",
+  "object_id": "test_object",
+  "num_frames": 12,
+  "contact_frame_index": 3,
+  "max_frame_index": 11
+}
