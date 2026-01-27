@@ -1,45 +1,43 @@
-"""Trossen arm interface.
+"""Robot arm base class."""
 
-TODO: Implement with actual robot SDK when hardware available.
-"""
+from abc import ABC, abstractmethod
 
-from src.utils.log import get_logger
+import numpy as np
+
 from src.utils.types import Transform4x4
 
-logger = get_logger(__name__)
 
+class RobotArm(ABC):
+    """Abstract base class for robot arms."""
 
-class RobotArm:
-    """Trossen arm interface.
+    @abstractmethod
+    def connect(self) -> None:
+        pass
 
-    TODO: Implement with actual robot SDK.
-    """
-
-    def __init__(self):
-        logger.info("Connecting to robot arm...")
-        # TODO: Initialize robot connection
-        raise NotImplementedError("Robot connection not implemented")
-
+    @abstractmethod
     def get_ee_pose(self) -> Transform4x4:
-        """Get current end-effector pose in base frame."""
-        raise NotImplementedError
+        pass
 
+    @abstractmethod
     def get_gripper_opening(self) -> float:
-        """Get gripper opening in meters."""
-        raise NotImplementedError
+        pass
 
-    def move_to(self, pose: Transform4x4) -> None:
-        """Move end-effector to target pose."""
-        raise NotImplementedError
-
+    @abstractmethod
     def move_down(self, distance: float) -> None:
-        """Move end-effector down by distance (meters)."""
-        raise NotImplementedError
+        pass
 
+    @abstractmethod
     def move_up(self, distance: float) -> None:
-        """Move end-effector up by distance (meters)."""
-        raise NotImplementedError
+        pass
 
+    @abstractmethod
+    def open_gripper(self) -> None:
+        pass
+
+    @abstractmethod
+    def close_gripper(self) -> None:
+        pass
+
+    @abstractmethod
     def close(self) -> None:
-        """Disconnect from robot."""
-        raise NotImplementedError
+        pass

@@ -4,16 +4,30 @@ Dataset writer for saving samples to disk.
 Saves samples in the following structure:
     dataset/
     ├── calibration/
+    │   ├── X.npy
+    │   ├── T_u_left_params.npy
+    │   └── T_u_right_params.npy
     ├── objects/
     │   └── {object_id}.json
     ├── samples/
     │   └── {sample_id}/
     │       ├── sample.json
-    │       ├── rgb.mp4
-    │       ├── depth.npy
-    │       ├── gelsight_left.mp4
-    │       ├── gelsight_right.mp4
-    │       └── poses.npy
+    │       ├── rgb/
+    │       │   ├── 00.png
+    │       │   └── ...
+    │       ├── depth/
+    │       │   ├── 00.npy
+    │       │   └── ...
+    │       ├── gelsight_left/
+    │       │   ├── 00.png
+    │       │   └── ...
+    │       ├── gelsight_right/
+    │       │   ├── 00.png
+    │       │   └── ...
+    │       ├── poses/
+    │       │   ├── left.npy
+    │       │   └── right.npy
+    │       └── timestamps.npy
     └── metadata.json
 """
 
@@ -22,10 +36,10 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from src.utils.types import Metadata, Object, SampleData
-from src.utils.video import frames_to_mp4
 
 
 class DatasetWriter:
@@ -46,6 +60,37 @@ class DatasetWriter:
         self.samples_dir.mkdir(parents=True, exist_ok=True)
         self.objects_dir.mkdir(parents=True, exist_ok=True)
 
+    def _save_frames_as_png(
+        self, frames: np.ndarray, output_dir: Path
+    ) -> None:
+        """
+        Save frames as individual PNG files (00.png, 01.png, ...).
+
+        Args:
+            frames: Image frames (N, H, W, 3) uint8, RGB order
+            output_dir: Output directory for PNG files
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        for i, frame in enumerate(frames):
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            cv2.imwrite(str(output_dir / f"{i:02d}.png"), frame_bgr)
+
+    def _save_depth_frames(
+        self, depth: np.ndarray, output_dir: Path
+    ) -> None:
+        """
+        Save depth frames as individual NPY files (00.npy, 01.npy, ...).
+
+        Args:
+            depth: Depth frames (N, H, W) float32
+            output_dir: Output directory for NPY files
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        for i, frame in enumerate(depth):
+            np.save(output_dir / f"{i:02d}.npy", frame.astype(np.float32))
+
     def write_sample(self, data: SampleData) -> Path:
         """
         Write a sample to disk.
@@ -59,18 +104,22 @@ class DatasetWriter:
         sample_dir = self.samples_dir / data.sample.sample_id
         sample_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save videos
-        frames_to_mp4(data.rgb, sample_dir / "rgb.mp4", fps=data.sample.fps)
-        frames_to_mp4(
-            data.gelsight_left, sample_dir / "gelsight_left.mp4", fps=data.sample.fps
-        )
-        frames_to_mp4(
-            data.gelsight_right, sample_dir / "gelsight_right.mp4", fps=data.sample.fps
-        )
+        # Save image frames as PNG (rgb/, gelsight_left/, gelsight_right/)
+        self._save_frames_as_png(data.rgb, sample_dir / "rgb")
+        self._save_frames_as_png(data.gelsight_left, sample_dir / "gelsight_left")
+        self._save_frames_as_png(data.gelsight_right, sample_dir / "gelsight_right")
 
-        # Save numpy arrays
-        np.save(sample_dir / "depth.npy", data.depth.astype(np.float32))
-        np.save(sample_dir / "poses.npy", data.poses.astype(np.float32))
+        # Save depth frames as NPY (depth/)
+        self._save_depth_frames(data.depth, sample_dir / "depth")
+
+        # Save poses (poses/left.npy, poses/right.npy)
+        poses_dir = sample_dir / "poses"
+        poses_dir.mkdir(parents=True, exist_ok=True)
+        np.save(poses_dir / "left.npy", data.poses_left.astype(np.float32))
+        np.save(poses_dir / "right.npy", data.poses_right.astype(np.float32))
+
+        # Save timestamps
+        np.save(sample_dir / "timestamps.npy", data.timestamps.astype(np.float64))
 
         # Save sample metadata
         with open(sample_dir / "sample.json", "w") as f:

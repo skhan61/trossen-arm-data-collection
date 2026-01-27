@@ -18,10 +18,9 @@ class Sample:
 
     sample_id: str  # Unique sample identifier "000001"
     object_id: str  # Reference to object being pressed
-    contact_frame: int  # Frame when gripper first touches object
-    max_press_frame: int  # Frame at maximum press depth
-    sample_rate: int  # Collection loop rate in Hz (not camera hardware rate)
     num_frames: int  # Total frames in sample
+    contact_frame_index: int  # 0-based index where contact detected (-1 if none)
+    max_frame_index: int  # 0-based index where max press/stall occurred
 
 
 @dataclass
@@ -34,14 +33,16 @@ class SampleData:
     # Metadata (from sample.json)
     sample: Sample
 
-    # Video frames
-    rgb: NDArray[np.uint8]  # (N, H, W, 3) RealSense RGB
-    gelsight_left: NDArray[np.uint8]  # (N, H, W, 3) left tactile
-    gelsight_right: NDArray[np.uint8]  # (N, H, W, 3) right tactile
+    # Image frames (N, H, W, 3) uint8
+    rgb: NDArray[np.uint8]  # RealSense RGB
+    gelsight_left: NDArray[np.uint8]  # Left tactile
+    gelsight_right: NDArray[np.uint8]  # Right tactile
 
     # Numpy arrays
     depth: NDArray[np.float32]  # (N, H, W) depth in meters
-    poses: NDArray[np.float32]  # (N, 2, 4, 4) T_base_to_gelsight [left, right]
+    poses_left: NDArray[np.float32]  # (N, 4, 4) T_base_to_gelsight_left
+    poses_right: NDArray[np.float32]  # (N, 4, 4) T_base_to_gelsight_right
+    timestamps: NDArray[np.float64]  # (N,) timestamp per frame
 
 
 @dataclass
