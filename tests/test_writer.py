@@ -14,22 +14,20 @@ from src.utils.types import Metadata, Object, Sample, SampleData
 def make_sample_data(
     sample_id: str = "000001",
     object_id: str = "obj_001",
-    contact_frame: int = 5,
-    max_press_frame: int = 10,
-    fps: int = 30,
-    num_frames: int = 10,
-    rgb_shape: tuple = (10, 100, 100, 3),
-    depth_shape: tuple = (10, 100, 100),
-    gs_shape: tuple = (10, 100, 100, 3),
+    contact_frame_index: int = 3,
+    max_frame_index: int = 7,
+    num_frames: int = 8,
+    rgb_shape: tuple = (8, 100, 100, 3),
+    depth_shape: tuple = (8, 100, 100),
+    gs_shape: tuple = (8, 100, 100, 3),
 ) -> SampleData:
     """Helper to create SampleData for tests."""
     sample = Sample(
         sample_id=sample_id,
         object_id=object_id,
-        contact_frame=contact_frame,
-        max_press_frame=max_press_frame,
-        fps=fps,
         num_frames=num_frames,
+        contact_frame_index=contact_frame_index,
+        max_frame_index=max_frame_index,
     )
     return SampleData(
         sample=sample,
@@ -37,7 +35,9 @@ def make_sample_data(
         gelsight_left=np.random.randint(0, 255, gs_shape, dtype=np.uint8),
         gelsight_right=np.random.randint(0, 255, gs_shape, dtype=np.uint8),
         depth=np.random.rand(*depth_shape).astype(np.float32),
-        poses=np.random.rand(num_frames, 2, 4, 4).astype(np.float32),
+        poses_left=np.random.rand(num_frames, 4, 4).astype(np.float32),
+        poses_right=np.random.rand(num_frames, 4, 4).astype(np.float32),
+        timestamps=np.random.rand(num_frames).astype(np.float64),
     )
 
 
@@ -59,21 +59,23 @@ class TestDatasetWriter:
 
             data = make_sample_data(
                 sample_id="000001",
-                num_frames=90,
-                rgb_shape=(90, 480, 640, 3),
-                depth_shape=(90, 480, 640),
-                gs_shape=(90, 240, 320, 3),
+                num_frames=10,
+                rgb_shape=(10, 480, 640, 3),
+                depth_shape=(10, 480, 640),
+                gs_shape=(10, 240, 320, 3),
             )
 
             sample_dir = writer.write_sample(data)
 
             # Check files exist
             assert (sample_dir / "sample.json").exists()
-            assert (sample_dir / "rgb.mp4").exists()
-            assert (sample_dir / "depth.npy").exists()
-            assert (sample_dir / "gelsight_left.mp4").exists()
-            assert (sample_dir / "gelsight_right.mp4").exists()
-            assert (sample_dir / "poses.npy").exists()
+            assert (sample_dir / "rgb").exists()
+            assert (sample_dir / "depth").exists()
+            assert (sample_dir / "gelsight_left").exists()
+            assert (sample_dir / "gelsight_right").exists()
+            assert (sample_dir / "poses" / "left.npy").exists()
+            assert (sample_dir / "poses" / "right.npy").exists()
+            assert (sample_dir / "timestamps.npy").exists()
 
     def test_write_sample_json_content(self):
         """Test sample.json has correct content."""
@@ -83,10 +85,9 @@ class TestDatasetWriter:
             data = make_sample_data(
                 sample_id="000001",
                 object_id="object_001",
-                contact_frame=15,
-                max_press_frame=45,
-                fps=30,
-                num_frames=10,
+                contact_frame_index=3,
+                max_frame_index=7,
+                num_frames=8,
             )
 
             sample_dir = writer.write_sample(data)
@@ -96,10 +97,9 @@ class TestDatasetWriter:
 
             assert json_data["sample_id"] == "000001"
             assert json_data["object_id"] == "object_001"
-            assert json_data["contact_frame"] == 15
-            assert json_data["max_press_frame"] == 45
-            assert json_data["fps"] == 30
-            assert json_data["num_frames"] == 10
+            assert json_data["contact_frame_index"] == 3
+            assert json_data["max_frame_index"] == 7
+            assert json_data["num_frames"] == 8
 
     def test_write_object(self):
         """Test writing object metadata."""
@@ -202,19 +202,37 @@ class TestDatasetWriter:
             assert metadata.num_samples == 3
             assert metadata.name == "visual_haptic_deformation"
 
-    def test_depth_dtype_float32(self):
-        """Test that depth is saved as float32."""
+    def test_rgb_frames_saved_as_png(self):
+        """Test RGB frames are saved as individual PNGs."""
         with tempfile.TemporaryDirectory() as tmpdir:
             writer = DatasetWriter(tmpdir)
 
-            data = make_sample_data()
-            # Override with float64 to test conversion
-            data.depth = np.random.rand(10, 100, 100).astype(np.float64)
-
+            data = make_sample_data(num_frames=5, rgb_shape=(5, 100, 100, 3))
             sample_dir = writer.write_sample(data)
 
-            loaded_depth = np.load(sample_dir / "depth.npy")
-            assert loaded_depth.dtype == np.float32
+            rgb_dir = sample_dir / "rgb"
+            assert rgb_dir.exists()
+            assert (rgb_dir / "00.png").exists()
+            assert (rgb_dir / "04.png").exists()
+            assert len(list(rgb_dir.glob("*.png"))) == 5
+
+    def test_depth_frames_saved_as_npy(self):
+        """Test depth frames are saved as individual NPYs."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            writer = DatasetWriter(tmpdir)
+
+            data = make_sample_data(num_frames=5, depth_shape=(5, 100, 100))
+            sample_dir = writer.write_sample(data)
+
+            depth_dir = sample_dir / "depth"
+            assert depth_dir.exists()
+            assert (depth_dir / "00.npy").exists()
+            assert (depth_dir / "04.npy").exists()
+            assert len(list(depth_dir.glob("*.npy"))) == 5
+
+            # Check dtype
+            loaded = np.load(depth_dir / "00.npy")
+            assert loaded.dtype == np.float32
 
     def test_poses_dtype_float32(self):
         """Test that poses are saved as float32."""
@@ -222,99 +240,34 @@ class TestDatasetWriter:
             writer = DatasetWriter(tmpdir)
 
             data = make_sample_data()
-            # Override with float64 to test conversion
-            data.poses = np.random.rand(10, 2, 4, 4).astype(np.float64)
-
             sample_dir = writer.write_sample(data)
 
-            loaded_poses = np.load(sample_dir / "poses.npy")
-            assert loaded_poses.dtype == np.float32
-
-    def test_depth_shape(self):
-        """Test depth.npy has correct shape (N, H, W)."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            writer = DatasetWriter(tmpdir)
-
-            data = make_sample_data(
-                num_frames=10,
-                rgb_shape=(10, 120, 160, 3),
-                depth_shape=(10, 120, 160),
-                gs_shape=(10, 60, 80, 3),
-            )
-
-            sample_dir = writer.write_sample(data)
-
-            loaded_depth = np.load(sample_dir / "depth.npy")
-            assert loaded_depth.shape == (10, 120, 160)
+            loaded_left = np.load(sample_dir / "poses" / "left.npy")
+            loaded_right = np.load(sample_dir / "poses" / "right.npy")
+            assert loaded_left.dtype == np.float32
+            assert loaded_right.dtype == np.float32
 
     def test_poses_shape(self):
-        """Test poses.npy has correct shape (N, 2, 4, 4)."""
+        """Test poses have correct shape (N, 4, 4)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             writer = DatasetWriter(tmpdir)
 
             data = make_sample_data(num_frames=10)
-
             sample_dir = writer.write_sample(data)
 
-            loaded_poses = np.load(sample_dir / "poses.npy")
-            assert loaded_poses.shape == (10, 2, 4, 4)
+            loaded_left = np.load(sample_dir / "poses" / "left.npy")
+            loaded_right = np.load(sample_dir / "poses" / "right.npy")
+            assert loaded_left.shape == (10, 4, 4)
+            assert loaded_right.shape == (10, 4, 4)
 
-    def test_rgb_video_shape(self):
-        """Test rgb.mp4 has correct shape (N, H, W, 3)."""
-        from src.utils.video import mp4_to_frames
-
+    def test_timestamps_saved(self):
+        """Test timestamps are saved correctly."""
         with tempfile.TemporaryDirectory() as tmpdir:
             writer = DatasetWriter(tmpdir)
 
-            data = make_sample_data(
-                num_frames=10,
-                rgb_shape=(10, 120, 160, 3),
-                depth_shape=(10, 120, 160),
-                gs_shape=(10, 60, 80, 3),
-            )
-
+            data = make_sample_data(num_frames=5)
             sample_dir = writer.write_sample(data)
 
-            loaded_rgb = mp4_to_frames(sample_dir / "rgb.mp4")
-            assert loaded_rgb.shape == (10, 120, 160, 3)
-            assert loaded_rgb.dtype == np.uint8
-
-    def test_gelsight_left_video_shape(self):
-        """Test gelsight_left.mp4 has correct shape (N, H, W, 3)."""
-        from src.utils.video import mp4_to_frames
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            writer = DatasetWriter(tmpdir)
-
-            data = make_sample_data(
-                num_frames=10,
-                rgb_shape=(10, 120, 160, 3),
-                depth_shape=(10, 120, 160),
-                gs_shape=(10, 60, 80, 3),
-            )
-
-            sample_dir = writer.write_sample(data)
-
-            loaded_gs = mp4_to_frames(sample_dir / "gelsight_left.mp4")
-            assert loaded_gs.shape == (10, 60, 80, 3)
-            assert loaded_gs.dtype == np.uint8
-
-    def test_gelsight_right_video_shape(self):
-        """Test gelsight_right.mp4 has correct shape (N, H, W, 3)."""
-        from src.utils.video import mp4_to_frames
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            writer = DatasetWriter(tmpdir)
-
-            data = make_sample_data(
-                num_frames=10,
-                rgb_shape=(10, 120, 160, 3),
-                depth_shape=(10, 120, 160),
-                gs_shape=(10, 60, 80, 3),
-            )
-
-            sample_dir = writer.write_sample(data)
-
-            loaded_gs = mp4_to_frames(sample_dir / "gelsight_right.mp4")
-            assert loaded_gs.shape == (10, 60, 80, 3)
-            assert loaded_gs.dtype == np.uint8
+            loaded = np.load(sample_dir / "timestamps.npy")
+            assert loaded.shape == (5,)
+            assert loaded.dtype == np.float64

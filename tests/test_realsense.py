@@ -7,6 +7,9 @@ Requires: RealSense camera connected (auto-detected)
 import numpy as np
 import pytest
 
+# Skip entire module if pyrealsense2 not available
+pytest.importorskip("pyrealsense2")
+
 from src.sensors.realsense import RealSenseCamera
 
 
