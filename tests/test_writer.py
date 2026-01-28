@@ -17,6 +17,7 @@ def make_sample_data(
     contact_frame_index: int = 3,
     max_frame_index: int = 7,
     num_frames: int = 8,
+    deformation: float = 0.0085,
     rgb_shape: tuple = (8, 100, 100, 3),
     depth_shape: tuple = (8, 100, 100),
     gs_shape: tuple = (8, 100, 100, 3),
@@ -28,6 +29,7 @@ def make_sample_data(
         num_frames=num_frames,
         contact_frame_index=contact_frame_index,
         max_frame_index=max_frame_index,
+        deformation=deformation,
     )
     return SampleData(
         sample=sample,
@@ -100,6 +102,7 @@ class TestDatasetWriter:
             assert json_data["contact_frame_index"] == 3
             assert json_data["max_frame_index"] == 7
             assert json_data["num_frames"] == 8
+            assert json_data["deformation"] == 0.0085
 
     def test_write_object(self):
         """Test writing object metadata."""
@@ -271,3 +274,4 @@ class TestDatasetWriter:
             loaded = np.load(sample_dir / "timestamps.npy")
             assert loaded.shape == (5,)
             assert loaded.dtype == np.float64
+

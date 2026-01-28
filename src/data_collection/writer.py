@@ -3,10 +3,6 @@ Dataset writer for saving samples to disk.
 
 Saves samples in the following structure:
     dataset/
-    ├── calibration/
-    │   ├── X.npy
-    │   ├── T_u_left_params.npy
-    │   └── T_u_right_params.npy
     ├── objects/
     │   └── {object_id}.json
     ├── samples/
@@ -29,6 +25,16 @@ Saves samples in the following structure:
     │       │   └── right.npy
     │       └── timestamps.npy
     └── metadata.json
+
+sample.json schema:
+    {
+        "sample_id": "000001",
+        "object_id": "object_001",
+        "num_frames": 7,
+        "contact_frame_index": 3,
+        "max_frame_index": 6,
+        "deformation": 0.0085
+    }
 """
 
 import json

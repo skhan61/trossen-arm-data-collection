@@ -136,6 +136,35 @@ def load_calibration(
     return X, T_u_left, T_u_right
 
 
+def compute_point_in_base_frame(
+    T_base_to_ee: Transform4x4,
+    X: XMatrix,
+    point_in_camera: np.ndarray,
+) -> np.ndarray:
+    """
+    Transform a 3D point from camera frame to robot base frame.
+
+    T_base_to_point = T_base_to_ee @ X @ T_cam_to_point
+
+    Args:
+        T_base_to_ee: (4, 4) Robot end-effector pose in base frame
+        X: (4, 4) Eye-in-hand calibration matrix
+        point_in_camera: (3,) Point in camera frame [x, y, z] in meters
+
+    Returns:
+        point_in_base: (3,) Point in robot base frame [x, y, z] in meters
+    """
+    # Build 4x4 transform for point (identity rotation, translation = point)
+    T_cam_to_point = np.eye(4, dtype=np.float64)
+    T_cam_to_point[:3, 3] = point_in_camera
+
+    # Transform chain
+    T_base_to_point = T_base_to_ee @ X @ T_cam_to_point
+
+    # Extract translation (the point position in base frame)
+    return T_base_to_point[:3, 3]
+
+
 def is_valid_transform(transform: Transform4x4, tol: float = 1e-6) -> bool:
     """
     Check if a 4x4 matrix is a valid homogeneous transformation.

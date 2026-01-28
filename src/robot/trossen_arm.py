@@ -146,6 +146,79 @@ class TrossenArm(RobotArm):
         self._driver.set_arm_modes(trossen_arm.Mode.position)
         self._driver.set_arm_positions(positions, duration, True)
 
+    def get_cartesian_position(self) -> tuple[float, float, float, float, float, float]:
+        """Get current Cartesian position (x, y, z, rx, ry, rz).
+
+        Returns:
+            Tuple of (x, y, z, rx, ry, rz) in meters and radians
+        """
+        cart = self._driver.get_cartesian_positions()
+        return tuple(cart)
+
+    def move_to_cartesian(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        rx: float | None = None,
+        ry: float | None = None,
+        rz: float | None = None,
+        duration: float = 2.0,
+    ) -> None:
+        """Move end-effector to Cartesian position.
+
+        If orientation (rx, ry, rz) is not specified, keeps current orientation.
+
+        Args:
+            x: Target x position (meters)
+            y: Target y position (meters)
+            z: Target z position (meters)
+            rx: Target roll (radians), or None to keep current
+            ry: Target pitch (radians), or None to keep current
+            rz: Target yaw (radians), or None to keep current
+            duration: Motion duration (seconds)
+        """
+        # Get current orientation if not specified
+        current = self.get_cartesian_position()
+        if rx is None:
+            rx = current[3]
+        if ry is None:
+            ry = current[4]
+        if rz is None:
+            rz = current[5]
+
+        target = [x, y, z, rx, ry, rz]
+        logger.info(f"Moving to Cartesian: x={x:.3f}, y={y:.3f}, z={z:.3f}")
+
+        self._driver.set_arm_modes(trossen_arm.Mode.position)
+        self._driver.set_cartesian_positions(
+            target,
+            trossen_arm.InterpolationSpace.cartesian,
+            duration,
+            True,
+        )
+
+    def move_to_position_above(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        height_above: float = 0.05,
+        duration: float = 2.0,
+    ) -> None:
+        """Move to position above target point (for top-down approach).
+
+        Args:
+            x: Target x position (meters)
+            y: Target y position (meters)
+            z: Target z position (meters) - object surface
+            height_above: Height to position above target (meters)
+            duration: Motion duration (seconds)
+        """
+        # Move to position above target
+        target_z = z + height_above
+        self.move_to_cartesian(x, y, target_z, duration=duration)
+
     def close(self) -> None:
         # SDK doesn't have explicit disconnect
         logger.info("Disconnected")

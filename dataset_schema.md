@@ -77,11 +77,14 @@ dataset/
     "object_id": "object_001",
     "num_frames": 7,
     "contact_frame_index": 3,
-    "max_frame_index": 6
+    "max_frame_index": 6,
+    "deformation": 0.0085
 }
 ```
 
-Note: `contact_frame_index` and `max_frame_index` are 0-based indices matching file names (e.g., contact_frame_index=3 refers to file 03.png).
+Note:
+- `contact_frame_index` and `max_frame_index` are 0-based indices matching file names (e.g., contact_frame_index=3 refers to file 03.png)
+- `deformation` = u[contact] - u[max] in meters (soft objects have large values, hard objects have small values)
 
 ---
 

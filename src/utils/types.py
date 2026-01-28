@@ -21,6 +21,7 @@ class Sample:
     num_frames: int  # Total frames in sample
     contact_frame_index: int  # 0-based index where contact detected (-1 if none)
     max_frame_index: int  # 0-based index where max press/stall occurred
+    deformation: float  # u[contact] - u[max] in meters (soft=large, hard=small)
 
 
 @dataclass

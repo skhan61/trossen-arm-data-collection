@@ -4,9 +4,17 @@ Collect one touch sample following dataset schema.
 Robot assumed already positioned above object with gripper open.
 Collects frames while closing gripper until stall.
 
-Usage:
+Provides:
+    - collect_sample(): Reusable function for sample collection (takes hardware as params)
+    - main(): Standalone CLI entry point
+
+Usage (standalone):
     python -m src.data_collection.collect_one_sample \
         --sample_id 000001 --gs_left_id 0 --gs_right_id 8 --dataset_dir dataset/
+
+Usage (imported):
+    from src.data_collection.collect_one_sample import collect_sample
+    sample_data = collect_sample(robot, realsense, gs_left, gs_right, ...)
 """
 
 import time
@@ -20,7 +28,8 @@ from src.robot.trossen_arm import TrossenArm
 from src.sensors.gelsight import GelSightSensor
 from src.sensors.realsense import RealSenseCamera
 from src.utils.log import get_logger
-from src.utils.transforms import compute_T_base_to_gelsight, load_calibration
+from src.utils.transforms import \
+    compute_T_base_to_gelsight, load_calibration
 from src.utils.types import (
     Object,
     Sample,
@@ -35,6 +44,281 @@ def compute_diff_from_baseline(current: np.ndarray, baseline: np.ndarray) -> flo
     return float(
         np.mean(np.abs(current.astype(np.float32) - baseline.astype(np.float32)))
     )
+
+
+def compute_sensor_distance(pose_left: np.ndarray, pose_right: np.ndarray) -> float:
+    """Compute Euclidean distance between left and right GelSight sensor positions.
+
+    Args:
+        pose_left: 4x4 homogeneous transformation matrix for left sensor
+        pose_right: 4x4 homogeneous transformation matrix for right sensor
+
+    Returns:
+        Distance between sensor positions in meters
+    """
+    pos_left = pose_left[:3, 3]
+    pos_right = pose_right[:3, 3]
+    return float(np.linalg.norm(pos_right - pos_left))
+
+
+# =============================================================================
+# Reusable function: collect_sample (takes hardware as parameters)
+# =============================================================================
+
+
+def collect_sample(
+    robot: TrossenArm,
+    realsense: RealSenseCamera,
+    gs_left: GelSightSensor,
+    gs_right: GelSightSensor,
+    X: np.ndarray,
+    T_u_left: np.ndarray,
+    T_u_right: np.ndarray,
+    sample_id: str,
+    object_id: str,
+    writer: DatasetWriter,
+    fps: int = 30,
+    debug: bool = False,
+) -> tuple[SampleData | None, float]:
+    """
+    Collect one touch sample. Robot should already be positioned.
+
+    Closes gripper until stall, collecting frames.
+
+    Args:
+        robot: Connected TrossenArm
+        realsense: Connected RealSenseCamera
+        gs_left: Connected left GelSightSensor
+        gs_right: Connected right GelSightSensor
+        X: Eye-in-hand calibration matrix (4x4)
+        T_u_left: Left GelSight T(u) parameters (6,)
+        T_u_right: Right GelSight T(u) parameters (6,)
+        sample_id: Sample identifier (e.g., "000001")
+        object_id: Object identifier
+        writer: DatasetWriter instance
+        fps: Capture frame rate
+        debug: Show CV2 display
+
+    Returns:
+        (SampleData, final_z) or (None, current_z) if failed
+    """
+    # Contact detection setup
+    contact_frame = -1
+    warmup_frames = 5
+    contact_multiplier = 2.0
+    prev_gs_left: np.ndarray | None = None
+    prev_gs_right: np.ndarray | None = None
+    diff_count = 0
+    diff_mean = 0.0
+
+    # Storage
+    rgb_frames: list[np.ndarray] = []
+    depth_frames: list[np.ndarray] = []
+    gs_left_frames: list[np.ndarray] = []
+    gs_right_frames: list[np.ndarray] = []
+    poses_left: list[np.ndarray] = []
+    poses_right: list[np.ndarray] = []
+    gripper_openings: list[float] = []
+    timestamps: list[float] = []
+
+    max_frames = 50
+    gripper_step = -0.002  # Close by 2mm per step
+    frame_interval = 1.0 / fps
+
+    initial_gripper = robot.get_gripper_opening()
+    logger.info(f"Initial gripper opening: {initial_gripper * 1000:.1f}mm")
+
+    prev_gripper = initial_gripper
+    stall_count = 0
+    max_frame = -1
+
+    for frame_idx in range(max_frames):
+        frame_start = time.time()
+
+        # Close gripper by one step
+        robot.step_gripper(gripper_step)
+        gripper_opening = robot.get_gripper_opening()
+
+        # Check stall
+        if abs(gripper_opening - prev_gripper) < 0.0001:
+            stall_count += 1
+        else:
+            stall_count = 0
+        prev_gripper = gripper_opening
+
+        # Capture
+        rgb, depth = realsense.capture()
+        gs_l = gs_left.capture()
+        gs_r = gs_right.capture()
+
+        T_base_ee = robot.get_ee_pose()
+
+        # Compute GelSight poses
+        pose_left = compute_T_base_to_gelsight(T_base_ee, X, T_u_left, gripper_opening)
+        pose_right = compute_T_base_to_gelsight(T_base_ee, X, T_u_right, gripper_opening)
+
+        # Store
+        rgb_frames.append(rgb)
+        depth_frames.append(depth)
+        gs_left_frames.append(gs_l)
+        gs_right_frames.append(gs_r)
+        poses_left.append(pose_left)
+        poses_right.append(pose_right)
+        gripper_openings.append(gripper_opening)
+        timestamps.append(time.time())
+
+        # Contact detection
+        diff_left = 0.0
+        diff_right = 0.0
+        diff_max = 0.0
+        if prev_gs_left is not None and prev_gs_right is not None:
+            diff_left = compute_diff_from_baseline(gs_l, prev_gs_left)
+            diff_right = compute_diff_from_baseline(gs_r, prev_gs_right)
+            diff_max = max(diff_left, diff_right)
+
+            if frame_idx < warmup_frames:
+                diff_count += 1
+                diff_mean += (diff_max - diff_mean) / diff_count
+            elif contact_frame < 0:
+                threshold = contact_multiplier * diff_mean
+                if diff_max > threshold:
+                    contact_frame = frame_idx
+                    ratio = diff_max / diff_mean if diff_mean > 0 else 0
+                    logger.info(
+                        f"CONTACT at frame {frame_idx}: grip={gripper_opening*1000:.1f}mm "
+                        f"diff={diff_max:.2f} (baseline={diff_mean:.2f}, ratio={ratio:.2f}x)"
+                    )
+
+        prev_gs_left = gs_l.copy()
+        prev_gs_right = gs_r.copy()
+
+        logger.info(
+            f"Frame {frame_idx}: grip={gripper_opening*1000:.1f}mm diff={diff_max:.2f}"
+        )
+
+        # Debug display
+        if debug:
+            rgb_disp = cv2.resize(rgb, (320, 240))
+            gs_l_disp = cv2.resize(gs_l, (320, 240))
+            gs_r_disp = cv2.resize(gs_r, (320, 240))
+
+            rgb_bgr = cv2.cvtColor(rgb_disp, cv2.COLOR_RGB2BGR)
+            gs_l_bgr = cv2.cvtColor(gs_l_disp, cv2.COLOR_RGB2BGR)
+            gs_r_bgr = cv2.cvtColor(gs_r_disp, cv2.COLOR_RGB2BGR)
+
+            cv2.putText(
+                rgb_bgr,
+                f"Frame {frame_idx} Grip: {gripper_opening*1000:.1f}mm",
+                (10, 25),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                1,
+            )
+
+            display = np.hstack([rgb_bgr, gs_l_bgr, gs_r_bgr])
+            cv2.imshow("Collection", display)
+            cv2.waitKey(1)
+
+        # Stop conditions
+        if stall_count >= 5:
+            max_frame = frame_idx
+            logger.info(f"STOP: Gripper STALLED at frame {frame_idx}")
+            break
+
+        if gripper_opening <= 0.001:
+            max_frame = frame_idx
+            logger.info(f"STOP: Gripper FULLY CLOSED at frame {frame_idx}")
+            break
+
+        # Maintain frame rate
+        elapsed = time.time() - frame_start
+        if debug:
+            time.sleep(0.5)
+        elif elapsed < frame_interval:
+            time.sleep(frame_interval - elapsed)
+
+    # Set max_frame if loop ended due to limit
+    if max_frame < 0:
+        max_frame = len(rgb_frames) - 1
+        logger.info(f"STOP: Reached MAX_FRAMES limit ({max_frames})")
+
+    logger.info(f"Collected {len(rgb_frames)} raw frames")
+    logger.info(f"Contact: frame {contact_frame}, Max: frame {max_frame}")
+
+    if contact_frame < 0:
+        logger.warning("No contact detected - saving all frames")
+
+    # Trim frames
+    pre_contact_frames = 3
+    if contact_frame >= 0:
+        start_idx = max(0, contact_frame - pre_contact_frames)
+        end_idx = max_frame + 1
+    else:
+        start_idx = 0
+        end_idx = len(rgb_frames)
+
+    rgb_frames = rgb_frames[start_idx:end_idx]
+    depth_frames = depth_frames[start_idx:end_idx]
+    gs_left_frames = gs_left_frames[start_idx:end_idx]
+    gs_right_frames = gs_right_frames[start_idx:end_idx]
+    poses_left = poses_left[start_idx:end_idx]
+    poses_right = poses_right[start_idx:end_idx]
+    gripper_openings = gripper_openings[start_idx:end_idx]
+    timestamps = timestamps[start_idx:end_idx]
+
+    new_contact_frame = contact_frame - start_idx if contact_frame >= 0 else -1
+    new_max_frame = max_frame - start_idx
+
+    logger.info(f"Trimmed to {len(rgb_frames)} frames")
+
+    # Compute deformation
+    if new_contact_frame >= 0:
+        gap_contact = compute_sensor_distance(
+            poses_left[new_contact_frame], poses_right[new_contact_frame]
+        )
+        gap_max = compute_sensor_distance(
+            poses_left[new_max_frame], poses_right[new_max_frame]
+        )
+        deformation = gap_contact - gap_max
+        logger.info(f"Deformation: {deformation * 1000:.2f}mm")
+    else:
+        deformation = 0.0
+
+    # Build sample data
+    sample = Sample(
+        sample_id=sample_id,
+        object_id=object_id,
+        num_frames=len(rgb_frames),
+        contact_frame_index=new_contact_frame,
+        max_frame_index=new_max_frame,
+        deformation=deformation,
+    )
+    sample_data = SampleData(
+        sample=sample,
+        rgb=np.array(rgb_frames, dtype=np.uint8),
+        gelsight_left=np.array(gs_left_frames, dtype=np.uint8),
+        gelsight_right=np.array(gs_right_frames, dtype=np.uint8),
+        depth=np.array(depth_frames, dtype=np.float32),
+        poses_left=np.array(poses_left, dtype=np.float32),
+        poses_right=np.array(poses_right, dtype=np.float32),
+        timestamps=np.array(timestamps, dtype=np.float64),
+    )
+
+    # Write to disk
+    sample_path = writer.write_sample(sample_data)
+    logger.info(f"Saved sample {sample_id} to {sample_path}")
+
+    # Get current Z for cleanup
+    current_ee = robot.get_cartesian_position()
+    final_z = current_ee[2]
+
+    return sample_data, final_z
+
+
+# =============================================================================
+# Standalone CLI entry point
+# =============================================================================
 
 
 def main(
@@ -125,6 +409,7 @@ def main(
         gs_right_frames: list[np.ndarray] = []
         poses_left: list[np.ndarray] = []
         poses_right: list[np.ndarray] = []
+        gripper_openings: list[float] = []
         timestamps: list[float] = []
 
         max_frames = 50
@@ -178,6 +463,7 @@ def main(
             gs_right_frames.append(gs_r)
             poses_left.append(pose_left)
             poses_right.append(pose_right)
+            gripper_openings.append(gripper_opening)
             timestamps.append(time.time())
 
             # Contact detection: running statistics model
@@ -312,7 +598,9 @@ def main(
         # Set max_frame if loop ended due to max_frames limit
         if max_frame < 0:
             max_frame = len(rgb_frames) - 1
-            logger.info(f"STOP: Reached MAX_FRAMES limit ({max_frames}), max_frame={max_frame}")
+            logger.info(
+                f"STOP: Reached MAX_FRAMES limit ({max_frames}), max_frame={max_frame}"
+            )
 
         # Summary (raw collection)
         logger.info(f"Collected {len(rgb_frames)} raw frames")
@@ -338,6 +626,7 @@ def main(
         gs_right_frames = gs_right_frames[start_idx:end_idx]
         poses_left = poses_left[start_idx:end_idx]
         poses_right = poses_right[start_idx:end_idx]
+        gripper_openings = gripper_openings[start_idx:end_idx]
         timestamps = timestamps[start_idx:end_idx]
 
         # Adjust frame indices to be relative to trimmed data (0-based, matches file names)
@@ -349,6 +638,25 @@ def main(
         )
         logger.info(f"New indices - Contact: {new_contact_frame}, Max: {new_max_frame}")
 
+        # Compute deformation using GelSight poses
+        # F = gap_contact - gap_max (how much the gap between sensors closed)
+        # Soft objects have large deformation, hard objects have small deformation
+        if new_contact_frame >= 0:
+            gap_contact = compute_sensor_distance(
+                poses_left[new_contact_frame], poses_right[new_contact_frame]
+            )
+            gap_max = compute_sensor_distance(
+                poses_left[new_max_frame], poses_right[new_max_frame]
+            )
+            deformation = gap_contact - gap_max
+            logger.info(
+                f"Deformation: {deformation * 1000:.2f}mm "
+                f"(gap_contact={gap_contact * 1000:.2f}mm, gap_max={gap_max * 1000:.2f}mm)"
+            )
+        else:
+            deformation = 0.0  # No contact detected
+            logger.info("Deformation: 0.00mm (no contact detected)")
+
         # Build sample data
         sample = Sample(
             sample_id=sample_id,
@@ -356,6 +664,7 @@ def main(
             num_frames=len(rgb_frames),
             contact_frame_index=new_contact_frame,
             max_frame_index=new_max_frame,
+            deformation=deformation,
         )
         sample_data = SampleData(
             sample=sample,
