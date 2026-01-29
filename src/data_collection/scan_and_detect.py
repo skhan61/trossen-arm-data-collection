@@ -343,13 +343,15 @@ def position_and_detect(
                 f"Object in base: x={obj_x*1000:.1f} y={obj_y*1000:.1f} z={obj_z*1000:.1f} mm"
             )
             logger.info(f"Target: x={target_x:.3f} y={target_y:.3f} z={target_z:.3f}")
+            logger.info(f"Object Z (for safe height calculation): {obj_z*1000:.1f}mm")
 
             # Open gripper and move to target
             robot.open_gripper(position=0.04)
             robot.move_to_cartesian(target_x, target_y, target_z, duration=2.0)
             logger.info("Moved to object position")
 
-            return (target_x, target_y, target_z)
+            # Return target position AND object Z for safe height calculation
+            return (target_x, target_y, target_z, obj_z)
 
 
 # =============================================================================

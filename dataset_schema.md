@@ -78,13 +78,13 @@ dataset/
     "num_frames": 7,
     "contact_frame_index": 3,
     "max_frame_index": 6,
-    "deformation": 0.0085
+    "post_contact_squeeze": 0.0085
 }
 ```
 
 Note:
 - `contact_frame_index` and `max_frame_index` are 0-based indices matching file names (e.g., contact_frame_index=3 refers to file 03.png)
-- `deformation` = u[contact] - u[max] in meters (soft objects have large values, hard objects have small values)
+- `post_contact_squeeze` = gap_contact - gap_max in meters (gripper closure after contact; soft objects allow more squeeze)
 
 ---
 

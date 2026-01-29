@@ -21,7 +21,7 @@ class Sample:
     num_frames: int  # Total frames in sample
     contact_frame_index: int  # 0-based index where contact detected (-1 if none)
     max_frame_index: int  # 0-based index where max press/stall occurred
-    deformation: float  # u[contact] - u[max] in meters (soft=large, hard=small)
+    post_contact_squeeze: float  # Gripper closure after contact in meters (gap_contact - gap_max)
 
 
 @dataclass
@@ -53,10 +53,14 @@ class Object:
     File: dataset/objects/{object_id}.json
 
     Describes the deformable object being pressed.
+    Dimensions are in mm. Width is the gripper squeeze direction.
     """
 
     object_id: str  # Unique object identifier "object_001"
     description: str  # Human-readable description "soft foam cube"
+    width_mm: float  # Width in mm (gripper squeeze direction)
+    height_mm: float  # Height in mm
+    length_mm: float  # Length in mm
 
 
 @dataclass

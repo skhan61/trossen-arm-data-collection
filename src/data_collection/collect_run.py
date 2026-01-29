@@ -34,6 +34,9 @@ logger = get_logger(__name__)
 def main(
     num_samples: int = 5,
     object_id: str = "test_object",
+    width_mm: float = 36.0,
+    height_mm: float = 36.0,
+    length_mm: float = 150.0,
     gs_left_id: int = 0,
     gs_right_id: int = 8,
     dataset_dir: str = "dataset/",
@@ -46,6 +49,9 @@ def main(
     Args:
         num_samples: Number of samples to collect
         object_id: Object identifier for samples
+        width_mm: Object width in mm (gripper squeeze direction)
+        height_mm: Object height in mm
+        length_mm: Object length in mm
         gs_left_id: Left GelSight video device ID
         gs_right_id: Right GelSight video device ID
         dataset_dir: Dataset root directory (for calibration)
@@ -54,13 +60,14 @@ def main(
     """
     dataset_dir = Path(dataset_dir)
 
-    # Load calibration (full: X, T_u_left, T_u_right)
+    # Load calibration
     calibration_dir = dataset_dir / "calibration"
     if not calibration_dir.exists():
         logger.error(f"Calibration not found: {calibration_dir}")
         return
     X, T_u_left, T_u_right = load_calibration(calibration_dir)
-    logger.info("Calibration loaded (X, T_u_left, T_u_right)")
+    logger.info("Calibration loaded")
+    logger.info(f"Object dimensions: {width_mm}x{height_mm}x{length_mm}mm (WxHxL)")
 
     # Connect hardware
     logger.info("Connecting to robot...")
@@ -88,13 +95,19 @@ def main(
 
     # Writer
     writer = DatasetWriter(dataset_dir)
-    writer.write_object(Object(object_id=object_id, description=""))
+    writer.write_object(Object(
+        object_id=object_id,
+        description="",
+        width_mm=width_mm,
+        height_mm=height_mm,
+        length_mm=length_mm,
+    ))
 
     # Setup CV2 window
     cv2.namedWindow("Detection")
     cv2.setMouseCallback("Detection", mouse_callback)
 
-    step_down_mm = 10.0  # Go down 1mm between samples
+    step_down_mm = 10.0  # Go down 10mm between samples
 
     try:
         # Go to home
@@ -113,11 +126,20 @@ def main(
             logger.info("User cancelled. Ending.")
             return
 
-        target_x, target_y, target_z = result
+        target_x, target_y, target_z, obj_z = result
+        # Compute safe height: use MAX of user position and camera-computed height
+        # This ensures safety even if camera detection is inaccurate
+        safe_clearance_mm = 100.0  # Safety clearance above object
+        camera_safe_z = obj_z + safe_clearance_mm / 1000.0
+        safe_z = max(target_z, camera_safe_z)  # Use the HIGHER of the two
         current_z = target_z
         logger.info(
             f"Gripper positioned at: x={target_x:.3f} y={target_y:.3f} z={target_z:.3f}"
         )
+        logger.info(f"Detected object Z: {obj_z*1000:.1f}mm")
+        logger.info(f"Camera safe Z (obj_z + {safe_clearance_mm}mm): {camera_safe_z*1000:.1f}mm")
+        logger.info(f"User position Z: {target_z*1000:.1f}mm")
+        logger.info(f"Safe Z (MAX of above): {safe_z*1000:.1f}mm")
 
         # =============================================
         # PART 2: Collect N samples (go down 1mm each time)
@@ -171,9 +193,16 @@ def main(
         writer.update_metadata()
         logger.info("Dataset metadata updated")
 
-        # Cleanup after all samples: move up, return home
-        logger.info("\nAll samples collected. Returning home...")
-        cleanup_and_return(robot, target_x, target_y, current_z)
+        # SAFETY: First move UP to safe detection height before returning home
+        logger.info("\nAll samples collected. Moving to safe height...")
+        logger.info(f"Current Z: {current_z*1000:.1f}mm -> Safe Z: {safe_z*1000:.1f}mm")
+        robot.open_gripper(position=0.04)
+        robot.move_to_cartesian(target_x, target_y, safe_z, duration=1.0)
+        logger.info(f"Moved up to safe Z: {safe_z*1000:.1f}mm")
+
+        # Now cleanup from safe height (adds another 50mm clearance)
+        logger.info("Returning home...")
+        cleanup_and_return(robot, target_x, target_y, safe_z)
 
         logger.info("\n=== Collection complete! ===")
 

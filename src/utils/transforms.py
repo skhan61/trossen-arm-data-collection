@@ -165,6 +165,25 @@ def compute_point_in_base_frame(
     return T_base_to_point[:3, 3]
 
 
+def compute_sensor_center_gap(
+    pose_left: Transform4x4,
+    pose_right: Transform4x4,
+) -> float:
+    """
+    Compute 3D distance between sensor centers.
+
+    Args:
+        pose_left: (4, 4) T_base_to_gelsight_left
+        pose_right: (4, 4) T_base_to_gelsight_right
+
+    Returns:
+        Distance between sensor centers in meters
+    """
+    pos_left = pose_left[:3, 3]
+    pos_right = pose_right[:3, 3]
+    return float(np.linalg.norm(pos_left - pos_right))
+
+
 def is_valid_transform(transform: Transform4x4, tol: float = 1e-6) -> bool:
     """
     Check if a 4x4 matrix is a valid homogeneous transformation.

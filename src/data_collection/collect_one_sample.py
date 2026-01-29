@@ -28,8 +28,10 @@ from src.robot.trossen_arm import TrossenArm
 from src.sensors.gelsight import GelSightSensor
 from src.sensors.realsense import RealSenseCamera
 from src.utils.log import get_logger
-from src.utils.transforms import \
-    compute_T_base_to_gelsight, load_calibration
+from src.utils.transforms import (
+    compute_T_base_to_gelsight,
+    load_calibration,
+)
 from src.utils.types import (
     Object,
     Sample,
@@ -291,7 +293,7 @@ def collect_sample(
 
     logger.info(f"Trimmed to {len(rgb_frames)} frames")
 
-    # Compute deformation
+    # Compute post-contact squeeze (gripper closure after contact)
     if new_contact_frame >= 0:
         gap_contact = compute_sensor_distance(
             poses_left[new_contact_frame], poses_right[new_contact_frame]
@@ -299,10 +301,10 @@ def collect_sample(
         gap_max = compute_sensor_distance(
             poses_left[new_max_frame], poses_right[new_max_frame]
         )
-        deformation = gap_contact - gap_max
-        logger.info(f"Deformation: {deformation * 1000:.2f}mm")
+        post_contact_squeeze = gap_contact - gap_max
+        logger.info(f"Post-contact squeeze: {post_contact_squeeze * 1000:.2f}mm")
     else:
-        deformation = 0.0
+        post_contact_squeeze = 0.0
 
     # Build sample data
     sample = Sample(
@@ -311,7 +313,7 @@ def collect_sample(
         num_frames=len(rgb_frames),
         contact_frame_index=new_contact_frame,
         max_frame_index=new_max_frame,
-        deformation=deformation,
+        post_contact_squeeze=post_contact_squeeze,
     )
     sample_data = SampleData(
         sample=sample,
@@ -371,7 +373,18 @@ def main(
         logger.error(f"Calibration not found: {calibration_dir}")
         return
     X, T_u_left, T_u_right = load_calibration(calibration_dir)
-    logger.info("Calibration loaded (X, T_u_left, T_u_right)")
+    logger.info("Calibration loaded")
+
+    # Load object from JSON
+    import json
+    object_json_path = dataset_dir / "objects" / f"{object_id}.json"
+    if object_json_path.exists():
+        with open(object_json_path) as f:
+            object_data = json.load(f)
+        logger.info(f"Object loaded: {object_id}")
+    else:
+        object_data = None
+        logger.warning(f"Object JSON not found: {object_json_path}")
 
     # Connect hardware
     logger.info("Connecting to robot...")
@@ -399,7 +412,22 @@ def main(
 
     # Writer
     writer = DatasetWriter(dataset_dir)
-    writer.write_object(Object(object_id=object_id, description=""))
+    if object_data is not None:
+        writer.write_object(Object(
+            object_id=object_id,
+            description=object_data.get("description", ""),
+            width_mm=object_data.get("width_mm", 0.0),
+            height_mm=object_data.get("height_mm", 0.0),
+            length_mm=object_data.get("length_mm", 0.0),
+        ))
+    else:
+        writer.write_object(Object(
+            object_id=object_id,
+            description="",
+            width_mm=0.0,
+            height_mm=0.0,
+            length_mm=0.0,
+        ))
 
     try:
         # Go to home position with gripper open
@@ -672,9 +700,9 @@ def main(
         )
         logger.info(f"New indices - Contact: {new_contact_frame}, Max: {new_max_frame}")
 
-        # Compute deformation using GelSight poses
-        # F = gap_contact - gap_max (how much the gap between sensors closed)
-        # Soft objects have large deformation, hard objects have small deformation
+        # Compute post-contact squeeze (gripper closure after contact)
+        # = gap_contact - gap_max (how much the gap between sensors closed)
+        # Soft objects allow more squeeze, hard objects allow less
         if new_contact_frame >= 0:
             gap_contact = compute_sensor_distance(
                 poses_left[new_contact_frame], poses_right[new_contact_frame]
@@ -682,14 +710,14 @@ def main(
             gap_max = compute_sensor_distance(
                 poses_left[new_max_frame], poses_right[new_max_frame]
             )
-            deformation = gap_contact - gap_max
+            post_contact_squeeze = gap_contact - gap_max
             logger.info(
-                f"Deformation: {deformation * 1000:.2f}mm "
+                f"Post-contact squeeze: {post_contact_squeeze * 1000:.2f}mm "
                 f"(gap_contact={gap_contact * 1000:.2f}mm, gap_max={gap_max * 1000:.2f}mm)"
             )
         else:
-            deformation = 0.0  # No contact detected
-            logger.info("Deformation: 0.00mm (no contact detected)")
+            post_contact_squeeze = 0.0  # No contact detected
+            logger.info("Post-contact squeeze: 0.00mm (no contact detected)")
 
         # Build sample data
         sample = Sample(
@@ -698,7 +726,7 @@ def main(
             num_frames=len(rgb_frames),
             contact_frame_index=new_contact_frame,
             max_frame_index=new_max_frame,
-            deformation=deformation,
+            post_contact_squeeze=post_contact_squeeze,
         )
         sample_data = SampleData(
             sample=sample,

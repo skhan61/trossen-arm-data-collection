@@ -33,7 +33,7 @@ sample.json schema:
         "num_frames": 7,
         "contact_frame_index": 3,
         "max_frame_index": 6,
-        "deformation": 0.0085
+        "post_contact_squeeze": 0.0085
     }
 """
 
