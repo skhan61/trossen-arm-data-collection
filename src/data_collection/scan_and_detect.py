@@ -40,9 +40,10 @@ logger = get_logger(__name__)
 @dataclass
 class ObjectTemplate:
     """Template for known object dimensions."""
+
     name: str
-    width_mm: float   # X dimension
-    depth_mm: float   # Y dimension
+    width_mm: float  # X dimension
+    depth_mm: float  # Y dimension
     height_mm: float  # Z dimension (vertical when standing)
 
     @property
@@ -80,7 +81,9 @@ class RealSenseCameraWithIntrinsics(RealSenseCamera):
         self.cx = intr.ppx
         self.cy = intr.ppy
 
-    def pixel_to_3d(self, u: float, v: float, depth: float) -> tuple[float, float, float]:
+    def pixel_to_3d(
+        self, u: float, v: float, depth: float
+    ) -> tuple[float, float, float]:
         """Convert pixel + depth to 3D point in camera frame (meters)."""
         z = depth
         x = (u - self.cx) * z / self.fx
@@ -124,7 +127,7 @@ def detect_at_click(
 
     # Find contour closest to click point
     best_contour = None
-    best_dist = float('inf')
+    best_dist = float("inf")
 
     for c in contours:
         if cv2.contourArea(c) < 500:
@@ -133,7 +136,7 @@ def detect_at_click(
         if M["m00"] > 0:
             cx = int(M["m10"] / M["m00"])
             cy = int(M["m01"] / M["m00"])
-            dist = np.sqrt((cx - click_x)**2 + (cy - click_y)**2)
+            dist = np.sqrt((cx - click_x) ** 2 + (cy - click_y) ** 2)
             if dist < best_dist and dist < search_radius * 2:
                 best_dist = dist
                 best_contour = c
@@ -325,7 +328,9 @@ def position_and_detect(
             point_in_camera = np.array([x_cam, y_cam, z_cam])
 
             T_base_to_ee = robot.get_ee_pose()
-            point_in_base = compute_point_in_base_frame(T_base_to_ee, X, point_in_camera)
+            point_in_base = compute_point_in_base_frame(
+                T_base_to_ee, X, point_in_camera
+            )
             obj_x, obj_y, obj_z = point_in_base
 
             # Keep current Z, move to object X,Y
@@ -429,7 +434,9 @@ def main():
         detected_center = None
         detected_depth = 0.0
 
-        logger.info("Click on object to detect. Press 'q' to quit, 'r' to reset, 'p' to lock position")
+        logger.info(
+            "Click on object to detect. Press 'q' to quit, 'r' to reset, 'p' to lock position"
+        )
 
         while True:
             # Capture
@@ -442,12 +449,33 @@ def main():
             gripper_pos = robot.get_gripper_opening()
 
             # Show robot state
-            cv2.putText(viz, "GRAVITY MODE - Move robot manually", (10, 25),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-            cv2.putText(viz, f"EE: x={ee_pose[0]:.3f} y={ee_pose[1]:.3f} z={ee_pose[2]:.3f}",
-                (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            cv2.putText(viz, f"Gripper: {gripper_pos*1000:.1f}mm", (10, 70),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            cv2.putText(
+                viz,
+                "GRAVITY MODE - Move robot manually",
+                (10, 25),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 255),
+                2,
+            )
+            cv2.putText(
+                viz,
+                f"EE: x={ee_pose[0]:.3f} y={ee_pose[1]:.3f} z={ee_pose[2]:.3f}",
+                (10, 50),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),
+                1,
+            )
+            cv2.putText(
+                viz,
+                f"Gripper: {gripper_pos*1000:.1f}mm",
+                (10, 70),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),
+                1,
+            )
 
             # Handle click
             if click_point is not None:
@@ -462,33 +490,84 @@ def main():
 
                 if detected_center and detected_depth > 0:
                     cx, cy = detected_center
-                    cv2.drawMarker(viz, detected_center, (0, 0, 255), cv2.MARKER_CROSS, 30, 3)
+                    cv2.drawMarker(
+                        viz, detected_center, (0, 0, 255), cv2.MARKER_CROSS, 30, 3
+                    )
 
                     # Get 3D position
                     x_cam, y_cam, z_cam = camera.pixel_to_3d(cx, cy, detected_depth)
 
                     # Show position
-                    cv2.putText(viz, "DETECTED", (10, 120),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
-                    cv2.putText(viz, f"Camera: x={x_cam*1000:.1f} y={y_cam*1000:.1f} z={z_cam*1000:.1f} mm",
-                        (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-                    cv2.putText(viz, f"Depth: {detected_depth*1000:.0f} mm",
-                        (10, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1)
+                    cv2.putText(
+                        viz,
+                        "DETECTED",
+                        (10, 120),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.0,
+                        (0, 255, 0),
+                        2,
+                    )
+                    cv2.putText(
+                        viz,
+                        f"Camera: x={x_cam*1000:.1f} y={y_cam*1000:.1f} z={z_cam*1000:.1f} mm",
+                        (10, 150),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (255, 255, 255),
+                        1,
+                    )
+                    cv2.putText(
+                        viz,
+                        f"Depth: {detected_depth*1000:.0f} mm",
+                        (10, 175),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (255, 255, 0),
+                        1,
+                    )
 
                     # Template info
-                    cv2.putText(viz, f"Template: {OBJECT_TEMPLATE.width_mm}x{OBJECT_TEMPLATE.height_mm}mm",
-                        (10, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 100), 1)
+                    cv2.putText(
+                        viz,
+                        f"Template: {OBJECT_TEMPLATE.width_mm}x{OBJECT_TEMPLATE.height_mm}mm",
+                        (10, 200),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        (255, 200, 100),
+                        1,
+                    )
             else:
-                cv2.putText(viz, "Click on object to detect", (10, 120),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 1)
+                cv2.putText(
+                    viz,
+                    "Click on object to detect",
+                    (10, 120),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (200, 200, 200),
+                    1,
+                )
 
             # Instructions
             if detected_center and detected_depth > 0:
-                cv2.putText(viz, "g=GO to object  q=quit  r=reset  p=lock", (10, viz.shape[0] - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
+                cv2.putText(
+                    viz,
+                    "g=GO to object  q=quit  r=reset  p=lock",
+                    (10, viz.shape[0] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (150, 150, 150),
+                    1,
+                )
             else:
-                cv2.putText(viz, "q=quit  r=reset  p=lock position", (10, viz.shape[0] - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
+                cv2.putText(
+                    viz,
+                    "q=quit  r=reset  p=lock position",
+                    (10, viz.shape[0] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (150, 150, 150),
+                    1,
+                )
 
             cv2.imshow("Detection", viz)
             key = cv2.waitKey(1) & 0xFF
@@ -525,7 +604,9 @@ def main():
                 T_base_to_ee = robot.get_ee_pose()
 
                 # Transform object position to robot base frame using calibration
-                point_in_base = compute_point_in_base_frame(T_base_to_ee, X, point_in_camera)
+                point_in_base = compute_point_in_base_frame(
+                    T_base_to_ee, X, point_in_camera
+                )
                 obj_x, obj_y, obj_z = point_in_base
 
                 # Keep current Z height - only move in X,Y to center gripper over object
@@ -534,10 +615,18 @@ def main():
                 target_y = obj_y
                 target_z = current_z  # Stay at current height
 
-                logger.info(f"Object in camera: x={x_cam*1000:.1f} y={y_cam*1000:.1f} z={z_cam*1000:.1f} mm")
-                logger.info(f"Object in base: x={obj_x*1000:.1f} y={obj_y*1000:.1f} z={obj_z*1000:.1f} mm")
-                logger.info(f"Current EE: x={ee_pose[0]:.3f} y={ee_pose[1]:.3f} z={ee_pose[2]:.3f}")
-                logger.info(f"Target EE:  x={target_x:.3f} y={target_y:.3f} z={target_z:.3f} (keeping Z)")
+                logger.info(
+                    f"Object in camera: x={x_cam*1000:.1f} y={y_cam*1000:.1f} z={z_cam*1000:.1f} mm"
+                )
+                logger.info(
+                    f"Object in base: x={obj_x*1000:.1f} y={obj_y*1000:.1f} z={obj_z*1000:.1f} mm"
+                )
+                logger.info(
+                    f"Current EE: x={ee_pose[0]:.3f} y={ee_pose[1]:.3f} z={ee_pose[2]:.3f}"
+                )
+                logger.info(
+                    f"Target EE:  x={target_x:.3f} y={target_y:.3f} z={target_z:.3f} (keeping Z)"
+                )
 
                 # Open gripper first
                 robot.open_gripper(position=0.04)
@@ -551,7 +640,9 @@ def main():
                 step_down_mm = 1.0
                 current_touch_z = target_z
 
-                logger.info(f"Starting touch sequence: {num_touches} touches, {step_down_mm}mm step")
+                logger.info(
+                    f"Starting touch sequence: {num_touches} touches, {step_down_mm}mm step"
+                )
 
                 for i in range(num_touches):
                     # Open gripper
@@ -560,8 +651,12 @@ def main():
 
                     # Go down 1mm
                     current_touch_z -= step_down_mm / 1000.0  # Convert mm to meters
-                    robot.move_to_cartesian(target_x, target_y, current_touch_z, duration=0.5)
-                    logger.info(f"Touch {i+1}/{num_touches}: Moved to z={current_touch_z*1000:.1f}mm")
+                    robot.move_to_cartesian(
+                        target_x, target_y, current_touch_z, duration=0.5
+                    )
+                    logger.info(
+                        f"Touch {i+1}/{num_touches}: Moved to z={current_touch_z*1000:.1f}mm"
+                    )
 
                     # Close gripper (touch)
                     robot.close_gripper()

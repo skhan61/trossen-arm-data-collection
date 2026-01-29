@@ -1,20 +1,13 @@
 """
 Integrated data collection: positioning + sample collection.
 
-Uses modular functions from:
-    - scan_and_detect.py: position_and_detect(), cleanup_and_return()
-    - collect_one_sample.py: collect_sample()
-
-Workflow per sample:
-1. Gravity mode - manually position robot
-2. Click to detect object, press 'g' to move
-3. Collect sample (close gripper, capture frames)
-4. Cleanup: open gripper, move up 50mm, return home
-5. Repeat for N samples
+BLUEPRINT:
+=========
+Part 1: Scan and detect object (position gripper over object)
+Part 2: Collect sample (close gripper with GelSight recording)
 
 Usage:
-    python -m src.data_collection.collect_run \
-        --num_samples 10 --gs_left_id 0 --gs_right_id 8 --dataset_dir dataset/
+    python -m src.data_collection.collect_run --num_samples 5 --object_id my_object
 """
 
 from pathlib import Path
@@ -39,37 +32,37 @@ logger = get_logger(__name__)
 
 
 def main(
-    num_samples: int = 10,
+    num_samples: int = 5,
+    object_id: str = "test_object",
     gs_left_id: int = 0,
     gs_right_id: int = 8,
     dataset_dir: str = "dataset/",
-    object_id: str = "test_object",
     fps: int = 30,
     debug: bool = False,
 ):
     """
-    Collect N samples with positioning + collection loop.
+    Collect samples: scan/detect then collect with GelSight.
 
     Args:
         num_samples: Number of samples to collect
+        object_id: Object identifier for samples
         gs_left_id: Left GelSight video device ID
         gs_right_id: Right GelSight video device ID
-        dataset_dir: Dataset root directory
-        object_id: Object identifier
-        fps: Capture frame rate
-        debug: Show CV2 displays
+        dataset_dir: Dataset root directory (for calibration)
+        fps: Camera frame rate
+        debug: Show debug CV2 display during collection
     """
     dataset_dir = Path(dataset_dir)
 
-    # Load calibration
+    # Load calibration (full: X, T_u_left, T_u_right)
     calibration_dir = dataset_dir / "calibration"
     if not calibration_dir.exists():
         logger.error(f"Calibration not found: {calibration_dir}")
         return
     X, T_u_left, T_u_right = load_calibration(calibration_dir)
-    logger.info("Calibration loaded")
+    logger.info("Calibration loaded (X, T_u_left, T_u_right)")
 
-    # Connect all hardware once
+    # Connect hardware
     logger.info("Connecting to robot...")
     robot = TrossenArm()
     logger.info("Robot connected")
@@ -78,12 +71,14 @@ def main(
     camera = RealSenseCameraWithIntrinsics(fps=fps)
     logger.info("RealSense connected")
 
-    logger.info(f"Connecting to GelSight (L={gs_left_id}, R={gs_right_id})...")
+    logger.info(
+        f"Connecting to GelSight (L={gs_left_id}, R={gs_right_id}, fps={fps})..."
+    )
     gs_left = GelSightSensor(device_id=gs_left_id, fps=fps)
     gs_right = GelSightSensor(device_id=gs_right_id, fps=fps)
     logger.info("GelSight sensors connected")
 
-    # Sensor warmup
+    # Warm up sensors
     logger.info("Warming up sensors...")
     for _ in range(10):
         camera.capture()
@@ -99,35 +94,54 @@ def main(
     cv2.namedWindow("Detection")
     cv2.setMouseCallback("Detection", mouse_callback)
 
+    step_down_mm = 10.0  # Go down 1mm between samples
+
     try:
-        # Go to home position
+        # Go to home
         logger.info("Going to home position...")
         robot.go_home()
         logger.info("At home position")
 
-        # Get next sample ID
-        samples_dir = dataset_dir / "samples"
-        existing = list(samples_dir.glob("*")) if samples_dir.exists() else []
-        start_id = len(existing)
+        # =============================================
+        # PART 1: Scan and detect object (ONCE)
+        # =============================================
+        # - Gravity mode: manually position robot
+        # - Click to detect object
+        # - Press 'g' to move gripper over object
+        result = position_and_detect(robot, camera, X)
+        if result is None:
+            logger.info("User cancelled. Ending.")
+            return
 
-        logger.info(f"=== Starting collection: {num_samples} samples ===")
+        target_x, target_y, target_z = result
+        current_z = target_z
+        logger.info(
+            f"Gripper positioned at: x={target_x:.3f} y={target_y:.3f} z={target_z:.3f}"
+        )
+
+        # =============================================
+        # PART 2: Collect N samples (go down 1mm each time)
+        # =============================================
+        logger.info(
+            f"\nStarting {num_samples} sample collection, {step_down_mm}mm step down each"
+        )
 
         for i in range(num_samples):
-            sample_id = f"{start_id + i:06d}"
             logger.info(f"\n{'='*50}")
-            logger.info(f"Sample {i+1}/{num_samples} (ID: {sample_id})")
+            logger.info(f"Sample {i+1}/{num_samples}")
             logger.info(f"{'='*50}")
 
-            # Module 1: Position and detect (from scan_and_detect.py)
-            result = position_and_detect(robot, camera, X)
-            if result is None:
-                logger.info("User cancelled. Ending collection.")
-                break
+            # Go down 1mm (except first sample)
+            if i > 0:
+                current_z -= step_down_mm / 1000.0
+                robot.move_to_cartesian(target_x, target_y, current_z, duration=0.5)
+                logger.info(f"Moved down to z={current_z*1000:.1f}mm")
 
-            target_x, target_y, target_z = result
+            # Collect sample
+            sample_id = f"{i+1:06d}"
+            logger.info(f"Collecting sample {sample_id}...")
 
-            # Module 2: Collect sample (from collect_one_sample.py)
-            sample_data, final_z = collect_sample(
+            sample_data, _ = collect_sample(
                 robot=robot,
                 realsense=camera,
                 gs_left=gs_left,
@@ -142,16 +156,30 @@ def main(
                 debug=debug,
             )
 
-            # Module 3: Cleanup and return (from scan_and_detect.py)
-            cleanup_and_return(robot, target_x, target_y, final_z)
+            if sample_data is None:
+                logger.warning(f"Sample {sample_id} collection failed")
+            else:
+                logger.info(
+                    f"Sample {sample_id} collected: {sample_data.sample.num_frames} frames"
+                )
 
-            logger.info(f"Sample {sample_id} complete!")
+            # Open gripper for next sample (stay at position)
+            robot.open_gripper(position=0.04)
+            logger.info(f"Sample {i+1} done!")
 
-            # Update metadata after each sample
-            writer.update_metadata()
+        # Update metadata after all samples collected
+        writer.update_metadata()
+        logger.info("Dataset metadata updated")
 
-        logger.info(f"\n=== Collection complete! ===")
+        # Cleanup after all samples: move up, return home
+        logger.info("\nAll samples collected. Returning home...")
+        cleanup_and_return(robot, target_x, target_y, current_z)
 
+        logger.info("\n=== Collection complete! ===")
+
+    except Exception as e:
+        logger.error(f"Failed: {e}", exc_info=True)
+        raise
     finally:
         cv2.destroyAllWindows()
         robot.close()

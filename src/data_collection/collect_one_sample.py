@@ -104,12 +104,12 @@ def collect_sample(
     """
     # Contact detection setup
     contact_frame = -1
-    warmup_frames = 5
-    contact_multiplier = 2.0
+    skip_first_frames = 3  # Skip first N frames (unstable GelSight startup)
+    warmup_frames = 8  # Build baseline from frames 3-7 (after skip)
+    contact_multiplier = 1.4
     prev_gs_left: np.ndarray | None = None
     prev_gs_right: np.ndarray | None = None
-    diff_count = 0
-    diff_mean = 0.0
+    baseline_diffs: list[float] = []  # Store diffs for median calculation
 
     # Storage
     rgb_frames: list[np.ndarray] = []
@@ -177,24 +177,45 @@ def collect_sample(
             diff_max = max(diff_left, diff_right)
 
             if frame_idx < warmup_frames:
-                diff_count += 1
-                diff_mean += (diff_max - diff_mean) / diff_count
+                # Only add to baseline after skipping first unstable frames
+                if frame_idx >= skip_first_frames:
+                    baseline_diffs.append(diff_max)
+                    baseline_median = float(np.median(baseline_diffs))
+                    logger.info(
+                        f"Frame {frame_idx}: BASELINE grip={gripper_opening*1000:.1f}mm "
+                        f"diff={diff_max:.2f} baseline_median={baseline_median:.2f}"
+                    )
+                else:
+                    logger.info(
+                        f"Frame {frame_idx}: SKIP grip={gripper_opening*1000:.1f}mm "
+                        f"diff={diff_max:.2f} (skipping unstable)"
+                    )
             elif contact_frame < 0:
-                threshold = contact_multiplier * diff_mean
+                baseline_median = float(np.median(baseline_diffs)) if baseline_diffs else 1.0
+                threshold = contact_multiplier * baseline_median
+                ratio = diff_max / baseline_median if baseline_median > 0 else 0
                 if diff_max > threshold:
                     contact_frame = frame_idx
-                    ratio = diff_max / diff_mean if diff_mean > 0 else 0
                     logger.info(
-                        f"CONTACT at frame {frame_idx}: grip={gripper_opening*1000:.1f}mm "
-                        f"diff={diff_max:.2f} (baseline={diff_mean:.2f}, ratio={ratio:.2f}x)"
+                        f"Frame {frame_idx}: CONTACT! grip={gripper_opening*1000:.1f}mm "
+                        f"diff={diff_max:.2f} > thresh={threshold:.2f} (baseline={baseline_median:.2f}, {ratio:.2f}x)"
                     )
+                else:
+                    logger.info(
+                        f"Frame {frame_idx}: CHECK grip={gripper_opening*1000:.1f}mm "
+                        f"diff={diff_max:.2f} vs thresh={threshold:.2f} ({ratio:.2f}x)"
+                    )
+            else:
+                logger.info(
+                    f"Frame {frame_idx}: POST-CONTACT grip={gripper_opening*1000:.1f}mm diff={diff_max:.2f}"
+                )
+        else:
+            logger.info(
+                f"Frame {frame_idx}: INIT grip={gripper_opening*1000:.1f}mm (no prev frame)"
+            )
 
         prev_gs_left = gs_l.copy()
         prev_gs_right = gs_r.copy()
-
-        logger.info(
-            f"Frame {frame_idx}: grip={gripper_opening*1000:.1f}mm diff={diff_max:.2f}"
-        )
 
         # Debug display
         if debug:
@@ -233,9 +254,7 @@ def collect_sample(
 
         # Maintain frame rate
         elapsed = time.time() - frame_start
-        if debug:
-            time.sleep(0.5)
-        elif elapsed < frame_interval:
+        if elapsed < frame_interval:
             time.sleep(frame_interval - elapsed)
 
     # Set max_frame if loop ended due to limit
@@ -388,19 +407,18 @@ def main(
         robot.go_home()
         logger.info("At home position with gripper open")
 
-        # Contact detection: multiplier-based model
-        # During warmup, build baseline mean
-        # After warmup, detect contact when diff > multiplier * baseline_mean
+        # Contact detection: multiplier-based model with median (robust to outliers)
+        # During warmup, build baseline median
+        # After warmup, detect contact when diff > multiplier * baseline_median
         contact_frame = -1
-        # ontact_diff = 0.0
-        warmup_frames = 5  # Frames to build baseline statistics
-        contact_multiplier = 2.0  # Require diff to be 2x baseline mean
+        skip_first_frames = 3  # Skip first N frames (unstable GelSight startup)
+        warmup_frames = 8  # Build baseline from frames 3-7 (after skip)
+        contact_multiplier = 1.6  # Require diff to be 2x baseline median
         prev_gs_left: np.ndarray | None = None
         prev_gs_right: np.ndarray | None = None
 
-        # Running statistics for baseline diff
-        diff_count = 0
-        diff_mean = 0.0
+        # Store baseline diffs for median calculation (robust to outliers)
+        baseline_diffs: list[float] = []
 
         # Storage
         rgb_frames: list[np.ndarray] = []
@@ -466,7 +484,7 @@ def main(
             gripper_openings.append(gripper_opening)
             timestamps.append(time.time())
 
-            # Contact detection: running statistics model
+            # Contact detection: median-based model (robust to outliers)
             diff_left = 0.0
             diff_right = 0.0
             diff_max = 0.0
@@ -476,29 +494,47 @@ def main(
                 diff_max = max(diff_left, diff_right)
 
                 if frame_idx < warmup_frames:
-                    # Warmup: update running mean
-                    diff_count += 1
-                    diff_mean += (diff_max - diff_mean) / diff_count
+                    # Warmup: collect baseline diffs (skip first unstable frames)
+                    if frame_idx >= skip_first_frames:
+                        baseline_diffs.append(diff_max)
+                        baseline_median = float(np.median(baseline_diffs))
+                        logger.info(
+                            f"Frame {frame_idx}: BASELINE grip={gripper_opening*1000:.1f}mm "
+                            f"diff={diff_max:.2f} baseline_median={baseline_median:.2f}"
+                        )
+                    else:
+                        logger.info(
+                            f"Frame {frame_idx}: SKIP grip={gripper_opening*1000:.1f}mm "
+                            f"diff={diff_max:.2f} (skipping unstable)"
+                        )
                 elif contact_frame < 0:
-                    # After warmup: detect contact when diff > multiplier * baseline
-                    threshold = contact_multiplier * diff_mean
+                    # After warmup: detect contact when diff > multiplier * baseline_median
+                    baseline_median = float(np.median(baseline_diffs)) if baseline_diffs else 1.0
+                    threshold = contact_multiplier * baseline_median
+                    ratio = diff_max / baseline_median if baseline_median > 0 else 0
 
                     if diff_max > threshold:
                         contact_frame = frame_idx
-                        contact_diff = diff_max
-                        ratio = diff_max / diff_mean if diff_mean > 0 else 0
                         logger.info(
-                            f"CONTACT at frame {frame_idx}: grip={gripper_opening*1000:.1f}mm "
-                            f"diff={diff_max:.2f} (baseline={diff_mean:.2f}, ratio={ratio:.2f}x, thresh={threshold:.2f})"
+                            f"Frame {frame_idx}: CONTACT! grip={gripper_opening*1000:.1f}mm "
+                            f"diff={diff_max:.2f} > thresh={threshold:.2f} (baseline={baseline_median:.2f}, {ratio:.2f}x)"
                         )
+                    else:
+                        logger.info(
+                            f"Frame {frame_idx}: CHECK grip={gripper_opening*1000:.1f}mm "
+                            f"diff={diff_max:.2f} vs thresh={threshold:.2f} ({ratio:.2f}x)"
+                        )
+                else:
+                    logger.info(
+                        f"Frame {frame_idx}: POST-CONTACT grip={gripper_opening*1000:.1f}mm diff={diff_max:.2f}"
+                    )
+            else:
+                logger.info(
+                    f"Frame {frame_idx}: INIT grip={gripper_opening*1000:.1f}mm (no prev frame)"
+                )
 
             prev_gs_left = gs_l.copy()
             prev_gs_right = gs_r.copy()
-
-            # Progress log every frame
-            logger.info(
-                f"Frame {frame_idx}: grip={gripper_opening*1000:.1f}mm max_diff={diff_max:.2f}"
-            )
 
             # Debug display
             if debug:
@@ -590,9 +626,7 @@ def main(
 
             # Maintain frame rate
             elapsed = time.time() - frame_start
-            if debug:
-                time.sleep(0.5)
-            elif elapsed < frame_interval:
+            if elapsed < frame_interval:
                 time.sleep(frame_interval - elapsed)
 
         # Set max_frame if loop ended due to max_frames limit

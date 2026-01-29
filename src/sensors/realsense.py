@@ -58,14 +58,17 @@ class RealSenseCamera:
             f"depth_scale={self._depth_scale}"
         )
 
-    def capture(self) -> tuple[np.ndarray, np.ndarray]:
+    def capture(self, timeout_ms: int = 15000) -> tuple[np.ndarray, np.ndarray]:
         """Capture RGB and depth.
+
+        Args:
+            timeout_ms: Timeout in milliseconds (default 15000 for USB bandwidth issues)
 
         Returns:
             rgb: (H, W, 3) uint8
             depth: (H, W) float32 meters
         """
-        frames = self._pipeline.wait_for_frames()
+        frames = self._pipeline.wait_for_frames(timeout_ms)
         aligned = self._align.process(frames)
 
         rgb = np.asanyarray(aligned.get_color_frame().get_data())

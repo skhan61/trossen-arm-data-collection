@@ -6,6 +6,7 @@ GelSight sensors appear as USB cameras. Uses OpenCV for capture.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -13,6 +14,40 @@ import numpy as np
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
+
+
+def discover_gelsight_sensors() -> list[int]:
+    """Auto-discover GelSight sensors by scanning video devices.
+
+    Searches /sys/class/video4linux/ for devices with 'GelSight' in their name.
+
+    Returns:
+        List of device IDs (integers) for GelSight sensors, sorted ascending.
+    """
+    gelsight_ids = []
+    video_dir = Path("/sys/class/video4linux")
+
+    if not video_dir.exists():
+        logger.warning("Video device directory not found")
+        return gelsight_ids
+
+    for device_path in sorted(video_dir.iterdir()):
+        name_file = device_path / "name"
+        if name_file.exists():
+            name = name_file.read_text().strip()
+            if "gelsight" in name.lower():
+                # Extract device ID from video0, video2, etc.
+                device_name = device_path.name  # e.g., "video2"
+                device_id = int(device_name.replace("video", ""))
+                gelsight_ids.append(device_id)
+                logger.info(f"Found GelSight: /dev/{device_name} ({name})")
+
+    if not gelsight_ids:
+        logger.warning("No GelSight sensors found")
+    else:
+        logger.info(f"Discovered {len(gelsight_ids)} GelSight sensor(s): {gelsight_ids}")
+
+    return gelsight_ids
 
 
 class GelSightSensor:
