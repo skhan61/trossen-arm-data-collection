@@ -20,7 +20,7 @@ The GelSight (H) encodes the **contact geometry and material response** — how 
 
 ## The Dataset
 
-To train this model, we collect data as follows:
+To train this model, we will collect data as follows:
 
 **For each object**, we collect **N touch samples** at different positions (e.g., 5 touches moving down the object in 10mm steps). This captures how deformation varies across the object's surface.
 
