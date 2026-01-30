@@ -6,11 +6,13 @@
 
 We want to learn a model that **predicts visual deformation from haptic feedback**.
 
-| Input | Output |
-|-------|--------|
-| **V_before**: RGB + Depth (pre-contact) | **V_after**: RGB + Depth (at max press) |
-| **H**: GelSight image (at max press) | |
-| **Pose**: T_base_to_gelsight (at max press) | |
+**Input:**
+- **V_before**: RGB + Depth (pre-contact)
+- **H**: GelSight image (at max press)
+- **Pose**: T_base_to_gelsight (at max press)
+
+**Output:**
+- **V_after**: RGB + Depth (at max press)
 
 The model learns: *"Given how the object looks before touching, where I will press, and what I will feel — predict what I will see after pressing."*
 
