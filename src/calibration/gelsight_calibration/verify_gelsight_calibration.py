@@ -3,17 +3,16 @@
 Verify GelSight calibration T(u) linear models.
 
 This script:
-1. Loads calibration results
-2. Computes predicted positions using T(u) = t0 + k*u
-3. Compares predicted vs actual detected positions
-4. Visualizes results with diagnostic plots
+1. Loads T(u) calibration parameters from .npy files
+2. Displays model parameters
+3. Visualizes predicted sensor positions for gripper opening range
+4. Computes expected sensor gap at different openings
 
 Usage:
     python src/calibration/gelsight_calibration/verify_gelsight_calibration.py
-    python src/calibration/gelsight_calibration/verify_gelsight_calibration.py --pose_name=home
+    python src/calibration/gelsight_calibration/verify_gelsight_calibration.py --calibration_dir=dataset/calibration
 """
 
-import json
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
@@ -25,7 +24,7 @@ from datetime import datetime
 # ============================================================================
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-DATA_DIR = Path(__file__).parent / "gelsight_calibration_data"
+DEFAULT_CALIBRATION_DIR = PROJECT_ROOT / "dataset" / "calibration"
 LOG_DIR = PROJECT_ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
@@ -42,137 +41,163 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def predict_position(model: dict, u: float) -> np.ndarray:
+def load_tu_params(calibration_dir: Path) -> tuple[np.ndarray | None, np.ndarray | None]:
     """
-    Predict 3D position using linear model T(u) = t0 + k*u.
+    Load T(u) parameters from .npy files.
 
     Args:
-        model: Dict with 'models' containing x, y, z linear params
+        calibration_dir: Path to calibration directory
+
+    Returns:
+        (T_u_left, T_u_right) - each is (6,) array [t0_x, t0_y, t0_z, k_x, k_y, k_z]
+        or None if file not found
+    """
+    left_file = calibration_dir / "T_u_left_params.npy"
+    right_file = calibration_dir / "T_u_right_params.npy"
+
+    left_params = None
+    right_params = None
+
+    if left_file.exists():
+        left_params = np.load(left_file)
+        logger.info(f"Loaded left T(u) params from {left_file}")
+    else:
+        logger.warning(f"Left T(u) params not found: {left_file}")
+
+    if right_file.exists():
+        right_params = np.load(right_file)
+        logger.info(f"Loaded right T(u) params from {right_file}")
+    else:
+        logger.warning(f"Right T(u) params not found: {right_file}")
+
+    return left_params, right_params
+
+
+def predict_position(params: np.ndarray, u: float) -> np.ndarray:
+    """
+    Predict 3D position using T(u) = t0 + k * u.
+
+    Args:
+        params: (6,) array [t0_x, t0_y, t0_z, k_x, k_y, k_z]
         u: Gripper opening in meters
 
     Returns:
         Predicted [x, y, z] position in meters
     """
-    models = model["models"]
-    return np.array(
-        [
-            models["x"]["t0"] + models["x"]["k"] * u,
-            models["y"]["t0"] + models["y"]["k"] * u,
-            models["z"]["t0"] + models["z"]["k"] * u,
-        ]
-    )
+    t0 = params[:3]
+    k = params[3:6]
+    return t0 + k * u
 
 
-def verify_calibration():
+def compute_sensor_gap(left_params: np.ndarray, right_params: np.ndarray, u: float) -> float:
     """
-    Verify GelSight calibration.
+    Compute distance between left and right sensor centers.
+
+    Args:
+        left_params: Left T(u) parameters
+        right_params: Right T(u) parameters
+        u: Gripper opening in meters
+
+    Returns:
+        Distance between sensor centers in meters
     """
+    left_pos = predict_position(left_params, u)
+    right_pos = predict_position(right_params, u)
+    return float(np.linalg.norm(left_pos - right_pos))
+
+
+def verify_calibration(calibration_dir: str | None = None):
+    """
+    Verify GelSight T(u) calibration.
+
+    Args:
+        calibration_dir: Path to calibration directory (default: dataset/calibration)
+    """
+    if calibration_dir is None:
+        calibration_dir = DEFAULT_CALIBRATION_DIR
+    else:
+        calibration_dir = Path(calibration_dir)
+
     logger.info("=" * 70)
-    logger.info("GelSight Calibration Verification")
+    logger.info("GelSight T(u) Calibration Verification")
     logger.info("=" * 70)
-    logger.info(f"Data dir: {DATA_DIR}")
+    logger.info(f"Calibration dir: {calibration_dir}")
     logger.info("")
 
-    # Load calibration results
-    calib_file = DATA_DIR / "gelsight_calibration.json"
-    if not calib_file.exists():
-        logger.error(f"Calibration file not found: {calib_file}")
+    # Load T(u) parameters
+    left_params, right_params = load_tu_params(calibration_dir)
+
+    if left_params is None and right_params is None:
+        logger.error("No calibration files found!")
         return
 
-    with open(calib_file) as f:
-        calib = json.load(f)
-
-    samples = calib["samples"]
-    left_model = calib.get("linear_model_left")
-    right_model = calib.get("linear_model_right")
-
-    logger.info(f"Loaded {len(samples)} samples")
-
     # ========================================================================
-    # Analyze LEFT sensor
+    # Display LEFT sensor parameters
     # ========================================================================
-    if left_model:
+    if left_params is not None:
         logger.info("\n" + "=" * 50)
-        logger.info("LEFT SENSOR VERIFICATION")
+        logger.info("LEFT SENSOR T(u) PARAMETERS")
         logger.info("=" * 50)
-
-        left_samples = [s for s in samples if s.get("left_3d") is not None]
-        logger.info(f"Samples with left detection: {len(left_samples)}")
-
-        u_values = np.array([s["gripper_opening_m"] for s in left_samples])
-        actual_positions = np.array([s["left_3d"] for s in left_samples])
-        predicted_positions = np.array(
-            [predict_position(left_model, u) for u in u_values]
-        )
-
-        errors = actual_positions - predicted_positions
-        errors_mm = errors * 1000
-
-        logger.info("\nPrediction errors (mm):")
-        for axis_idx, axis_name in enumerate(["x", "y", "z"]):
-            axis_errors = errors_mm[:, axis_idx]
-            logger.info(
-                f"  {axis_name}: mean={np.mean(axis_errors):.3f}, "
-                f"std={np.std(axis_errors):.3f}, "
-                f"max={np.max(np.abs(axis_errors)):.3f}"
-            )
-
-        total_error = np.linalg.norm(errors, axis=1) * 1000
-        logger.info(
-            f"\nTotal 3D error (mm): mean={np.mean(total_error):.3f}, "
-            f"std={np.std(total_error):.3f}, max={np.max(total_error):.3f}"
-        )
-
-        # Print model parameters
-        logger.info("\nLinear model parameters:")
-        for axis in ["x", "y", "z"]:
-            m = left_model["models"][axis]
-            logger.info(
-                f"  {axis}: t0={m['t0'] * 1000:.3f}mm, k={m['k'] * 1000:.3f}mm/m, R²={m['r_squared']:.4f}"
-            )
+        logger.info("T(u) = t0 + k * u, where u = gripper opening (meters)")
+        logger.info("")
+        logger.info("Parameters [t0_x, t0_y, t0_z, k_x, k_y, k_z]:")
+        logger.info(f"  Raw: {left_params}")
+        logger.info("")
+        logger.info("Interpreted:")
+        logger.info(f"  t0 (offset):    [{left_params[0]*1000:.3f}, {left_params[1]*1000:.3f}, {left_params[2]*1000:.3f}] mm")
+        logger.info(f"  k  (slope):     [{left_params[3]*1000:.3f}, {left_params[4]*1000:.3f}, {left_params[5]*1000:.3f}] mm/m")
+        logger.info("")
+        logger.info("Physical interpretation:")
+        logger.info(f"  - At u=0 (closed): sensor at ({left_params[0]*1000:.2f}, {left_params[1]*1000:.2f}, {left_params[2]*1000:.2f}) mm")
+        logger.info(f"  - X moves {left_params[3]*1000:.2f} mm per 1m of gripper opening")
+        logger.info(f"    (or {left_params[3]:.4f} mm per 1mm opening)")
 
     # ========================================================================
-    # Analyze RIGHT sensor
+    # Display RIGHT sensor parameters
     # ========================================================================
-    if right_model:
+    if right_params is not None:
         logger.info("\n" + "=" * 50)
-        logger.info("RIGHT SENSOR VERIFICATION")
+        logger.info("RIGHT SENSOR T(u) PARAMETERS")
         logger.info("=" * 50)
+        logger.info("T(u) = t0 + k * u, where u = gripper opening (meters)")
+        logger.info("")
+        logger.info("Parameters [t0_x, t0_y, t0_z, k_x, k_y, k_z]:")
+        logger.info(f"  Raw: {right_params}")
+        logger.info("")
+        logger.info("Interpreted:")
+        logger.info(f"  t0 (offset):    [{right_params[0]*1000:.3f}, {right_params[1]*1000:.3f}, {right_params[2]*1000:.3f}] mm")
+        logger.info(f"  k  (slope):     [{right_params[3]*1000:.3f}, {right_params[4]*1000:.3f}, {right_params[5]*1000:.3f}] mm/m")
+        logger.info("")
+        logger.info("Physical interpretation:")
+        logger.info(f"  - At u=0 (closed): sensor at ({right_params[0]*1000:.2f}, {right_params[1]*1000:.2f}, {right_params[2]*1000:.2f}) mm")
+        logger.info(f"  - X moves {right_params[3]*1000:.2f} mm per 1m of gripper opening")
+        logger.info(f"    (or {right_params[3]:.4f} mm per 1mm opening)")
 
-        right_samples = [s for s in samples if s.get("right_3d") is not None]
-        logger.info(f"Samples with right detection: {len(right_samples)}")
+    # ========================================================================
+    # Compute predictions for typical gripper openings
+    # ========================================================================
+    logger.info("\n" + "=" * 50)
+    logger.info("PREDICTED POSITIONS AT TYPICAL OPENINGS")
+    logger.info("=" * 50)
 
-        u_values_r = np.array([s["gripper_opening_m"] for s in right_samples])
-        actual_positions_r = np.array([s["right_3d"] for s in right_samples])
-        predicted_positions_r = np.array(
-            [predict_position(right_model, u) for u in u_values_r]
-        )
+    # Typical gripper opening range (26mm to 42mm based on calibration data)
+    openings_mm = [26, 30, 35, 40, 42]
 
-        errors_r = actual_positions_r - predicted_positions_r
-        errors_mm_r = errors_r * 1000
+    for u_mm in openings_mm:
+        u_m = u_mm / 1000.0
+        logger.info(f"\nGripper opening: {u_mm} mm ({u_m:.3f} m)")
 
-        logger.info("\nPrediction errors (mm):")
-        for axis_idx, axis_name in enumerate(["x", "y", "z"]):
-            axis_errors = errors_mm_r[:, axis_idx]
-            logger.info(
-                f"  {axis_name}: mean={np.mean(axis_errors):.3f}, "
-                f"std={np.std(axis_errors):.3f}, "
-                f"max={np.max(np.abs(axis_errors)):.3f}"
-            )
+        if left_params is not None:
+            left_pos = predict_position(left_params, u_m)
+            logger.info(f"  LEFT:  ({left_pos[0]*1000:.2f}, {left_pos[1]*1000:.2f}, {left_pos[2]*1000:.2f}) mm")
 
-        total_error_r = np.linalg.norm(errors_r, axis=1) * 1000
-        logger.info(
-            f"\nTotal 3D error (mm): mean={np.mean(total_error_r):.3f}, "
-            f"std={np.std(total_error_r):.3f}, max={np.max(total_error_r):.3f}"
-        )
+        if right_params is not None:
+            right_pos = predict_position(right_params, u_m)
+            logger.info(f"  RIGHT: ({right_pos[0]*1000:.2f}, {right_pos[1]*1000:.2f}, {right_pos[2]*1000:.2f}) mm")
 
-        # Print model parameters
-        logger.info("\nLinear model parameters:")
-        for axis in ["x", "y", "z"]:
-            m = right_model["models"][axis]
-            logger.info(
-                f"  {axis}: t0={m['t0'] * 1000:.3f}mm, k={m['k'] * 1000:.3f}mm/m, R²={m['r_squared']:.4f}"
-            )
+        if left_params is not None and right_params is not None:
+            gap = compute_sensor_gap(left_params, right_params, u_m)
+            logger.info(f"  GAP:   {gap*1000:.2f} mm")
 
     # ========================================================================
     # Create visualization
@@ -181,57 +206,72 @@ def verify_calibration():
     logger.info("Creating visualization...")
     logger.info("=" * 50)
 
-    fig, axes = plt.subplots(3, 2, figsize=(14, 12))
-    fig.suptitle("GelSight Calibration Verification", fontsize=14)
+    # Generate smooth range of openings
+    u_range_mm = np.linspace(20, 45, 100)
+    u_range_m = u_range_mm / 1000.0
 
-    axis_names = ["X", "Y", "Z"]
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle("GelSight T(u) Calibration Verification", fontsize=14)
 
-    for axis_idx, axis_name in enumerate(axis_names):
-        # LEFT sensor plot
-        ax_left = axes[axis_idx, 0]
-        if left_model and len(left_samples) > 0:
-            u_mm = u_values * 1000
-            actual_mm = actual_positions[:, axis_idx] * 1000
-            predicted_mm = predicted_positions[:, axis_idx] * 1000
+    # Plot 1: X position vs gripper opening
+    ax1 = axes[0, 0]
+    if left_params is not None:
+        left_x = [predict_position(left_params, u)[0] * 1000 for u in u_range_m]
+        ax1.plot(u_range_mm, left_x, "b-", linewidth=2, label="Left sensor")
+    if right_params is not None:
+        right_x = [predict_position(right_params, u)[0] * 1000 for u in u_range_m]
+        ax1.plot(u_range_mm, right_x, "g-", linewidth=2, label="Right sensor")
+    ax1.set_xlabel("Gripper Opening (mm)")
+    ax1.set_ylabel("X Position (mm)")
+    ax1.set_title("X Position vs Gripper Opening")
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
 
-            ax_left.scatter(u_mm, actual_mm, c="blue", alpha=0.6, label="Actual", s=30)
-            ax_left.plot(
-                u_mm, predicted_mm, "r-", linewidth=2, label="Predicted (T(u))"
-            )
+    # Plot 2: Y position vs gripper opening
+    ax2 = axes[0, 1]
+    if left_params is not None:
+        left_y = [predict_position(left_params, u)[1] * 1000 for u in u_range_m]
+        ax2.plot(u_range_mm, left_y, "b-", linewidth=2, label="Left sensor")
+    if right_params is not None:
+        right_y = [predict_position(right_params, u)[1] * 1000 for u in u_range_m]
+        ax2.plot(u_range_mm, right_y, "g-", linewidth=2, label="Right sensor")
+    ax2.set_xlabel("Gripper Opening (mm)")
+    ax2.set_ylabel("Y Position (mm)")
+    ax2.set_title("Y Position vs Gripper Opening")
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
 
-            m = left_model["models"][axis_name.lower()]
-            ax_left.set_title(f"LEFT - {axis_name} axis (R²={m['r_squared']:.4f})")
-            ax_left.set_xlabel("Gripper Opening (mm)")
-            ax_left.set_ylabel(f"{axis_name} Position (mm)")
-            ax_left.legend()
-            ax_left.grid(True, alpha=0.3)
-        else:
-            ax_left.text(0.5, 0.5, "No left sensor data", ha="center", va="center")
-            ax_left.set_title(f"LEFT - {axis_name} axis")
+    # Plot 3: Z position vs gripper opening
+    ax3 = axes[1, 0]
+    if left_params is not None:
+        left_z = [predict_position(left_params, u)[2] * 1000 for u in u_range_m]
+        ax3.plot(u_range_mm, left_z, "b-", linewidth=2, label="Left sensor")
+    if right_params is not None:
+        right_z = [predict_position(right_params, u)[2] * 1000 for u in u_range_m]
+        ax3.plot(u_range_mm, right_z, "g-", linewidth=2, label="Right sensor")
+    ax3.set_xlabel("Gripper Opening (mm)")
+    ax3.set_ylabel("Z Position (mm)")
+    ax3.set_title("Z Position vs Gripper Opening")
+    ax3.legend()
+    ax3.grid(True, alpha=0.3)
 
-        # RIGHT sensor plot
-        ax_right = axes[axis_idx, 1]
-        if right_model and len(right_samples) > 0:
-            u_mm_r = u_values_r * 1000
-            actual_mm_r = actual_positions_r[:, axis_idx] * 1000
-            predicted_mm_r = predicted_positions_r[:, axis_idx] * 1000
+    # Plot 4: Sensor gap vs gripper opening
+    ax4 = axes[1, 1]
+    if left_params is not None and right_params is not None:
+        gaps = [compute_sensor_gap(left_params, right_params, u) * 1000 for u in u_range_m]
+        ax4.plot(u_range_mm, gaps, "r-", linewidth=2)
+        ax4.set_xlabel("Gripper Opening (mm)")
+        ax4.set_ylabel("Sensor Gap (mm)")
+        ax4.set_title("Sensor Gap vs Gripper Opening")
+        ax4.grid(True, alpha=0.3)
 
-            ax_right.scatter(
-                u_mm_r, actual_mm_r, c="green", alpha=0.6, label="Actual", s=30
-            )
-            ax_right.plot(
-                u_mm_r, predicted_mm_r, "r-", linewidth=2, label="Predicted (T(u))"
-            )
-
-            m = right_model["models"][axis_name.lower()]
-            ax_right.set_title(f"RIGHT - {axis_name} axis (R²={m['r_squared']:.4f})")
-            ax_right.set_xlabel("Gripper Opening (mm)")
-            ax_right.set_ylabel(f"{axis_name} Position (mm)")
-            ax_right.legend()
-            ax_right.grid(True, alpha=0.3)
-        else:
-            ax_right.text(0.5, 0.5, "No right sensor data", ha="center", va="center")
-            ax_right.set_title(f"RIGHT - {axis_name} axis")
+        # Add reference line for gripper opening = gap
+        ax4.plot(u_range_mm, u_range_mm, "k--", alpha=0.5, label="Gap = Opening")
+        ax4.legend()
+    else:
+        ax4.text(0.5, 0.5, "Need both sensors for gap calculation",
+                ha="center", va="center", transform=ax4.transAxes)
+        ax4.set_title("Sensor Gap vs Gripper Opening")
 
     plt.tight_layout()
 
@@ -241,185 +281,108 @@ def verify_calibration():
     logger.info(f"Saved visualization to {output_file}")
 
     # ========================================================================
-    # Create residual plots
+    # 3D visualization of sensor trajectories
     # ========================================================================
-    fig2, axes2 = plt.subplots(2, 3, figsize=(15, 8))
-    fig2.suptitle("Calibration Residuals (Actual - Predicted)", fontsize=14)
-
-    # LEFT residuals
-    if left_model and len(left_samples) > 0:
-        for axis_idx, axis_name in enumerate(axis_names):
-            ax = axes2[0, axis_idx]
-            residuals = errors_mm[:, axis_idx]
-            ax.scatter(u_values * 1000, residuals, c="blue", alpha=0.6, s=30)
-            ax.axhline(y=0, color="r", linestyle="--", linewidth=1)
-            ax.axhline(
-                y=np.mean(residuals),
-                color="g",
-                linestyle="-",
-                linewidth=1,
-                label=f"Mean: {np.mean(residuals):.2f}mm",
-            )
-            ax.fill_between(
-                [u_values.min() * 1000, u_values.max() * 1000],
-                np.mean(residuals) - np.std(residuals),
-                np.mean(residuals) + np.std(residuals),
-                alpha=0.2,
-                color="green",
-                label=f"±1σ: {np.std(residuals):.2f}mm",
-            )
-            ax.set_title(f"LEFT - {axis_name} Residuals")
-            ax.set_xlabel("Gripper Opening (mm)")
-            ax.set_ylabel("Residual (mm)")
-            ax.legend(fontsize=8)
-            ax.grid(True, alpha=0.3)
-
-    # RIGHT residuals
-    if right_model and len(right_samples) > 0:
-        for axis_idx, axis_name in enumerate(axis_names):
-            ax = axes2[1, axis_idx]
-            residuals = errors_mm_r[:, axis_idx]
-            ax.scatter(u_values_r * 1000, residuals, c="green", alpha=0.6, s=30)
-            ax.axhline(y=0, color="r", linestyle="--", linewidth=1)
-            ax.axhline(
-                y=np.mean(residuals),
-                color="orange",
-                linestyle="-",
-                linewidth=1,
-                label=f"Mean: {np.mean(residuals):.2f}mm",
-            )
-            ax.fill_between(
-                [u_values_r.min() * 1000, u_values_r.max() * 1000],
-                np.mean(residuals) - np.std(residuals),
-                np.mean(residuals) + np.std(residuals),
-                alpha=0.2,
-                color="orange",
-                label=f"±1σ: {np.std(residuals):.2f}mm",
-            )
-            ax.set_title(f"RIGHT - {axis_name} Residuals")
-            ax.set_xlabel("Gripper Opening (mm)")
-            ax.set_ylabel("Residual (mm)")
-            ax.legend(fontsize=8)
-            ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-
-    output_file2 = Path(__file__).parent / "calibration_residuals.png"
-    plt.savefig(output_file2, dpi=150)
-    logger.info(f"Saved residuals plot to {output_file2}")
-
-    # ========================================================================
-    # 3D visualization of sensor motion
-    # ========================================================================
-    fig3 = plt.figure(figsize=(12, 5))
+    fig2 = plt.figure(figsize=(12, 5))
 
     # Left sensor 3D trajectory
-    ax3d_left = fig3.add_subplot(121, projection="3d")
-    if left_model and len(left_samples) > 0:
-        ax3d_left.scatter(
-            actual_positions[:, 0] * 1000,
-            actual_positions[:, 1] * 1000,
-            actual_positions[:, 2] * 1000,
-            c=u_values * 1000,
+    ax3d_left = fig2.add_subplot(121, projection="3d")
+    if left_params is not None:
+        positions = np.array([predict_position(left_params, u) for u in u_range_m])
+        scatter = ax3d_left.scatter(
+            positions[:, 0] * 1000,
+            positions[:, 1] * 1000,
+            positions[:, 2] * 1000,
+            c=u_range_mm,
             cmap="viridis",
-            s=30,
-            label="Actual",
-        )
-        ax3d_left.plot(
-            predicted_positions[:, 0] * 1000,
-            predicted_positions[:, 1] * 1000,
-            predicted_positions[:, 2] * 1000,
-            "r-",
-            linewidth=2,
-            label="Predicted",
+            s=10,
         )
         ax3d_left.set_xlabel("X (mm)")
         ax3d_left.set_ylabel("Y (mm)")
         ax3d_left.set_zlabel("Z (mm)")
-        ax3d_left.set_title("LEFT Sensor 3D Trajectory")
-        ax3d_left.legend()
+        ax3d_left.set_title("LEFT Sensor Trajectory")
+        fig2.colorbar(scatter, ax=ax3d_left, label="Gripper Opening (mm)", shrink=0.6)
+    else:
+        ax3d_left.text2D(0.5, 0.5, "No left sensor data", ha="center", va="center",
+                        transform=ax3d_left.transAxes)
 
     # Right sensor 3D trajectory
-    ax3d_right = fig3.add_subplot(122, projection="3d")
-    if right_model and len(right_samples) > 0:
-        scatter = ax3d_right.scatter(
-            actual_positions_r[:, 0] * 1000,
-            actual_positions_r[:, 1] * 1000,
-            actual_positions_r[:, 2] * 1000,
-            c=u_values_r * 1000,
+    ax3d_right = fig2.add_subplot(122, projection="3d")
+    if right_params is not None:
+        positions_r = np.array([predict_position(right_params, u) for u in u_range_m])
+        scatter_r = ax3d_right.scatter(
+            positions_r[:, 0] * 1000,
+            positions_r[:, 1] * 1000,
+            positions_r[:, 2] * 1000,
+            c=u_range_mm,
             cmap="viridis",
-            s=30,
-            label="Actual",
-        )
-        ax3d_right.plot(
-            predicted_positions_r[:, 0] * 1000,
-            predicted_positions_r[:, 1] * 1000,
-            predicted_positions_r[:, 2] * 1000,
-            "r-",
-            linewidth=2,
-            label="Predicted",
+            s=10,
         )
         ax3d_right.set_xlabel("X (mm)")
         ax3d_right.set_ylabel("Y (mm)")
         ax3d_right.set_zlabel("Z (mm)")
-        ax3d_right.set_title("RIGHT Sensor 3D Trajectory")
-        ax3d_right.legend()
-        fig3.colorbar(scatter, ax=ax3d_right, label="Gripper Opening (mm)", shrink=0.6)
+        ax3d_right.set_title("RIGHT Sensor Trajectory")
+        fig2.colorbar(scatter_r, ax=ax3d_right, label="Gripper Opening (mm)", shrink=0.6)
+    else:
+        ax3d_right.text2D(0.5, 0.5, "No right sensor data", ha="center", va="center",
+                        transform=ax3d_right.transAxes)
 
     plt.tight_layout()
 
-    output_file3 = Path(__file__).parent / "calibration_3d_trajectory.png"
-    plt.savefig(output_file3, dpi=150)
-    logger.info(f"Saved 3D trajectory plot to {output_file3}")
+    output_file2 = Path(__file__).parent / "calibration_3d_trajectory.png"
+    plt.savefig(output_file2, dpi=150)
+    logger.info(f"Saved 3D trajectory plot to {output_file2}")
 
     # ========================================================================
-    # Summary
+    # Summary and sanity checks
     # ========================================================================
     logger.info("\n" + "=" * 70)
-    logger.info("VERIFICATION SUMMARY")
+    logger.info("CALIBRATION SANITY CHECKS")
     logger.info("=" * 70)
 
-    logger.info("\nCalibration Quality Assessment:")
+    issues = []
 
-    if left_model:
-        avg_r2_left = np.mean(
-            [left_model["models"][a]["r_squared"] for a in ["x", "y", "z"]]
-        )
-        x_r2 = left_model["models"]["x"]["r_squared"]
-        logger.info("  LEFT sensor:")
-        logger.info(
-            f"    - X-axis R² = {x_r2:.4f} {'(GOOD - linear motion)' if x_r2 > 0.95 else '(CHECK - may have issues)'}"
-        )
-        logger.info(f"    - Average R² = {avg_r2_left:.4f}")
-        logger.info(
-            f"    - 3D error: mean={np.mean(total_error):.2f}mm, max={np.max(total_error):.2f}mm"
-        )
+    if left_params is not None:
+        # LEFT sensor should have NEGATIVE k_x (moves left/outward when gripper opens)
+        if left_params[3] < 0:
+            logger.info(f"  LEFT: X slope = {left_params[3]*1000:.3f} mm/m (negative - moves left/outward when opening - OK)")
+        else:
+            logger.warning(f"  LEFT: X slope is positive ({left_params[3]*1000:.3f} mm/m) - sensor moves RIGHT/inward with opening - CHECK CALIBRATION")
 
-    if right_model:
-        avg_r2_right = np.mean(
-            [right_model["models"][a]["r_squared"] for a in ["x", "y", "z"]]
-        )
-        x_r2_r = right_model["models"]["x"]["r_squared"]
-        logger.info("  RIGHT sensor:")
-        logger.info(
-            f"    - X-axis R² = {x_r2_r:.4f} {'(GOOD - linear motion)' if x_r2_r > 0.95 else '(CHECK - may have issues)'}"
-        )
-        logger.info(f"    - Average R² = {avg_r2_right:.4f}")
-        logger.info(
-            f"    - 3D error: mean={np.mean(total_error_r):.2f}mm, max={np.max(total_error_r):.2f}mm"
-        )
+        # Check if Y/Z slopes are small (should be mostly constant)
+        if abs(left_params[4]) > 0.1:  # More than 100mm/m
+            logger.warning(f"  LEFT: Y slope is large ({left_params[4]*1000:.3f} mm/m) - check calibration")
+        if abs(left_params[5]) > 0.1:
+            logger.warning(f"  LEFT: Z slope is large ({left_params[5]*1000:.3f} mm/m) - check calibration")
 
-    logger.info("\nExpected behavior:")
-    logger.info(
-        "  - X-axis should have high R² (sensors move linearly in X with gripper)"
-    )
-    logger.info("  - Y/Z axes may have lower R² (should remain relatively constant)")
-    logger.info("  - If Y/Z have high variation, check mask detection accuracy")
+    if right_params is not None:
+        # RIGHT sensor should have POSITIVE k_x (moves right/outward when gripper opens)
+        if right_params[3] > 0:
+            logger.info(f"  RIGHT: X slope = {right_params[3]*1000:.3f} mm/m (positive - moves right/outward when opening - OK)")
+        else:
+            logger.warning(f"  RIGHT: X slope is negative ({right_params[3]*1000:.3f} mm/m) - sensor moves LEFT/inward with opening - CHECK CALIBRATION")
+
+        # Check if Y/Z slopes are small
+        if abs(right_params[4]) > 0.1:
+            logger.warning(f"  RIGHT: Y slope is large ({right_params[4]*1000:.3f} mm/m) - check calibration")
+        if abs(right_params[5]) > 0.1:
+            logger.warning(f"  RIGHT: Z slope is large ({right_params[5]*1000:.3f} mm/m) - check calibration")
+
+    if left_params is not None and right_params is not None:
+        # Check symmetry
+        x_slope_diff = abs(left_params[3] + right_params[3])  # Should be close to 0 if symmetric
+        logger.info(f"\n  Symmetry check: |k_left_x + k_right_x| = {x_slope_diff*1000:.3f} mm/m")
+        if x_slope_diff < 0.01:  # Less than 10mm/m difference
+            logger.info("    Sensors appear symmetric (good)")
+        else:
+            logger.warning("    Sensors may not be symmetric - check mounting")
+
+    logger.info("\n" + "=" * 70)
+    logger.info("VERIFICATION COMPLETE")
+    logger.info("=" * 70)
 
     # Show plots
     plt.show()
-
-    logger.info("\nVerification complete!")
 
 
 if __name__ == "__main__":
