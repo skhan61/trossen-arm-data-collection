@@ -1,6 +1,6 @@
 # Visual-Haptic Deformation Prediction
 
-[![Tests](https://github.com/skhan61/trossen-arm-data-collection/actions/workflows/test.yml/badge.svg)](https://github.com/skhan61/trossen-arm-data-collection/actions/workflows/test.yml)
+<!-- [![Tests](https://github.com/skhan61/trossen-arm-data-collection/actions/workflows/test.yml/badge.svg)](https://github.com/skhan61/trossen-arm-data-collection/actions/workflows/test.yml) -->
 
 ## The Experiment
 
