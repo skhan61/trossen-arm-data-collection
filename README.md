@@ -1,8 +1,47 @@
-# Trossen Arm Data Collection
+# Visual-Haptic Deformation Prediction
 
 [![Tests](https://github.com/skhan61/trossen-arm-data-collection/actions/workflows/test.yml/badge.svg)](https://github.com/skhan61/trossen-arm-data-collection/actions/workflows/test.yml)
 
-Visual-Haptic Deformation Dataset collection using Trossen arm with RealSense camera and GelSight sensors.
+## The Experiment
+
+We want to learn a model that **predicts visual deformation from haptic feedback**.
+
+| Input | Output |
+|-------|--------|
+| **V_before**: RGB + Depth (pre-contact) | **V_after**: RGB + Depth (at max press) |
+| **H**: GelSight image (at max press) | |
+| **Pose**: T_base_to_gelsight (at max press) | |
+
+The model learns: *"Given how the object looks before touching, where I will press, and what I will feel — predict what I will see after pressing."*
+
+The GelSight (H) encodes the **contact geometry and material response** — how the object surface deformed under pressure. It's the "bridge" that tells us how the material behaved during the press, letting us predict the visual deformation.
+
+## The Dataset
+
+To train this model, we collect data as follows:
+
+**For each object**, we collect **N touch samples** at different positions (e.g., 5 touches moving down the object in 10mm steps). This captures how deformation varies across the object's surface.
+
+**Each sample (one touch)** contains:
+
+| Data | Description |
+|------|-------------|
+| RGB sequence | Image frames from RealSense as gripper closes |
+| Depth sequence | Corresponding depth maps |
+| GelSight left/right | Tactile images from both sensors |
+| Sensor poses | T_base_to_gelsight for each frame |
+| Contact frame index | When contact was first detected |
+| Max frame index | Frame of maximum compression |
+
+**For the experiment**, we extract from each sample:
+- **V_before** = RGB + Depth at contact_frame - 1 (pre-contact)
+- **V_after** = RGB + Depth at max_frame
+- **H** = GelSight images at max_frame
+- **Pose** = T_base_to_gelsight at max_frame
+
+This repo collects that data using a Trossen arm with RealSense camera and dual GelSight tactile sensors.
+
+---
 
 ## Problem Definition
 
